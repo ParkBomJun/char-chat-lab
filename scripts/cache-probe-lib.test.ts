@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePrefix, firstDiffSnippet, makeFiller, sha } from "./cache-probe-lib";
+import { comparePrefix, fillerCharsForTokens, firstDiffSnippet, makeFiller, parseTargets, sha } from "./cache-probe-lib";
 
 const m = (role: "system" | "user" | "assistant", content: string) => ({ role, content });
 
@@ -43,5 +43,20 @@ describe("makeFiller", () => {
     expect(makeFiller(300, 5000)).not.toBe(makeFiller(300, 0).slice(0, 300)); // E6: 오프셋이 다르면 맨 앞부터 다르다
     const lines = a.split("\n").filter(Boolean);
     expect(new Set(lines).size).toBe(lines.length);
+  });
+});
+
+describe("E7 문턱 실험 도우미", () => {
+  it("목표 토큰 → 더미 글자 수: 실측 비율(약 3.15글자/토큰)로 환산하고 틀 몫을 뺀다", () => {
+    expect(fillerCharsForTokens(4045 + 40)).toBeGreaterThan(12_600); // 실측: 12,800자 ≈ 4,045토큰
+    expect(fillerCharsForTokens(4045 + 40)).toBeLessThan(12_900);
+    expect(fillerCharsForTokens(10)).toBe(0);
+    expect(makeFiller(fillerCharsForTokens(2500)).length).toBe(fillerCharsForTokens(2500));
+  });
+  it("목표 목록: 오름차순·중복 제거, 잘못된 값은 오류", () => {
+    expect(parseTargets("3600, 2500,4200,3200,2500")).toEqual([2500, 3200, 3600, 4200]);
+    expect(() => parseTargets("")).toThrow();
+    expect(() => parseTargets("2500,abc")).toThrow();
+    expect(() => parseTargets("50")).toThrow();
   });
 });

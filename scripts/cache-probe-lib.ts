@@ -54,3 +54,22 @@ export function makeFiller(chars: number, offset = 0): string {
   }
   return out.slice(0, chars);
 }
+
+/**
+ * makeFiller 더미의 글자/토큰 비율. 2026-11-11 실측(E4·E5, google/gemini-3.8-flash)에서 역산:
+ * 더미 12,800자가 5,799 − 1,754 = 4,045토큰, 30,800자가 11,571 − 1,754 = 9,817토큰 → 약 3.14~3.16글자/토큰.
+ * 다른 모델에서는 다를 수 있으므로 크기는 항상 제공사가 센 prompt_tokens로 확인한다.
+ */
+export const FILLER_CHARS_PER_TOKEN = 3.15;
+
+/** 목표 토큰 수에 맞는 더미 글자 수(근사). overheadTokens는 표식 줄·사용자 메시지·메시지 틀 몫. */
+export function fillerCharsForTokens(targetTokens: number, charsPerToken = FILLER_CHARS_PER_TOKEN, overheadTokens = 40): number {
+  return Math.max(0, Math.round((targetTokens - overheadTokens) * charsPerToken));
+}
+
+/** "2500,3200" 같은 목록을 오름차순 정수 배열로. 잘못된 값이 있으면 오류. */
+export function parseTargets(csv: string): number[] {
+  const out = csv.split(",").map((x) => x.trim()).filter(Boolean).map(Number);
+  if (out.length === 0 || out.some((n) => !Number.isInteger(n) || n < 100 || n > 200_000)) throw new Error(`토큰 목표 목록이 올바르지 않습니다: ${csv}`);
+  return [...new Set(out)].sort((a, b) => a - b);
+}

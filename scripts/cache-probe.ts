@@ -13,11 +13,11 @@ import { mergeLlmEnv } from "../src/lib/llm-settings";
 import { SseParser } from "../src/lib/sse";
 import { estimateTokens } from "../src/lib/tokens";
 import type { ChatMessage } from "../src/lib/llm/types";
-import { comparePrefix, firstDiffSnippet, makeFiller, sha } from "./cache-probe-lib";
+import { comparePrefix, fillerCharsForTokens, firstDiffSnippet, makeFiller, parseTargets, sha } from "./cache-probe-lib";
 
 const { values: args, positionals } = parseArgs({
   allowPositionals: true,
-  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" }, only: { type: "string" }, "chars-per-token": { type: "string", default: "4" } },
+  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" }, only: { type: "string" }, "chars-per-token": { type: "string", default: "4" }, "e7-targets": { type: "string", default: "2500,3200,3600,4200" } },
 });
 const cmd = positionals[0] ?? "dump";
 
@@ -149,7 +149,7 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
 async function probe() {
   if (!args.real) {
     console.log("실제 호출 실험입니다(비용 발생). 의도했다면 --real 을 붙여 다시 실행하세요:  npm run cache:probe -- --real");
-    console.log("호출 계획(전부 실행 시 17회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
+    console.log("호출 계획(전부 실행 시 21회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
     console.log("  E1  스트리밍 동일 요청 2회 + 비스트리밍 동일 요청 2회   (입력 약 1.9K토큰 × 4)");
     console.log("  E2  session_id 동일 요청 2회                          (약 1.9K × 2)");
     console.log("  E3  접두사가 이어지는 후속 1회                         (약 2K × 1)");
@@ -157,7 +157,8 @@ async function probe() {
     console.log("  E5  명시적 캐시: 고정 블록 메시지에 cache_control ephemeral, 동일 요청 2회 (session_id 포함, 약 1.9K×2)");
     console.log("  E5b 같은 방식인데 4,500토큰 규모(문서상 Gemini 명시적 캐시 쓰기 최소 길이가 4096토큰이라 E5만으로는 판단이 어려움) 2회");
     console.log("  E6  앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 각각 '처음' 1회씩(cache_control 포함, 2회) → 첫 요청부터 cached>0인지로 방식 판정");
-    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회) · --only E6 (2회)");
+    console.log(`  E7  문턱 찾기: cache_control을 붙인 요청을 약 ${parseTargets(args["e7-targets"]!).join(", ")}토큰으로 1회씩(영문 더미 + 실행별 표식, 크기는 근사치라 표의 prompt 열 기준) → 처음 cached>0이 되는 크기가 문턱`);
+    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회) · --only E6 (2회) · --only E7 (4회)");
     return;
   }
   if (process.env.APP_ENV === "test" && process.env.ALLOW_REAL_LLM !== "1") throw new Error("APP_ENV=test에서는 ALLOW_REAL_LLM=1 없이 실제 호출을 하지 않습니다.");
@@ -192,7 +193,7 @@ async function probe() {
     await sleep(gap);
   };
 
-  const only = new Set((args.only ?? "E1,E2,E3,E4,E5,E6").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+  const only = new Set((args.only ?? "E1,E2,E3,E4,E5,E6,E7").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
   const want = (k: string) => only.has(k);
   const sid = args["session-id"] ?? `cache-probe-${Date.now()}`;
 
@@ -258,8 +259,32 @@ async function probe() {
     }
   }
 
+  // E7: 명시적 캐시가 동작하기 시작하는 길이(문턱) 찾기. 1.75K 실패·5.8K 동작 사이를 메운다.
+  // 카드 v3 이후 서비스 조립 결과(A)가 이미 3K토큰 안팎이라 작은 크기를 만들 수 없으므로, 영문 더미만으로 system 메시지를 만든다.
+  // "매 요청 할인" 방식(E6)이라 크기마다 1회면 된다. 맨 앞 표식이 실행·크기마다 달라 이전 요청의 캐시와 겹치지 않는다.
+  const e7Rows: { target: number; label: string }[] = [];
+  if (want("E7")) {
+    const stamp = Date.now();
+    for (const target of parseTargets(args["e7-targets"]!)) {
+      const sys = `# 문턱 실험 ${target}-${stamp}\n${makeFiller(fillerCharsForTokens(target))}`;
+      const m = withCacheControl([{ role: "system", content: sys }, { role: "user", content: "안녕하세요. 한 문장으로 인사해 주세요." }]);
+      const label = `E7 문턱 ${target}토큰 목표 +cache_control`;
+      e7Rows.push({ target, label });
+      await run(label, m as ChatMessage[], true, { session_id: `${sid}-e7-${target}-${stamp}` });
+    }
+  }
+
   console.log("실험                                    prompt  cached  cacheWr  cost($)      completion   ms   id");
   for (const r of results) console.log(`${r.label.padEnd(40)} ${String(r.promptTokens ?? "-").padStart(6)} ${String(r.cached ?? "(없음)").padStart(7)} ${String(r.cacheWrite ?? "-").padStart(8)}  ${String(r.cost ?? "-").padEnd(11)} ${String(r.completion ?? "-").padStart(10)} ${String(r.ms).padStart(5)}  ${r.id ?? "-"}${r.note ? "  ⚠ " + r.note : ""}`);
+  if (e7Rows.length) {
+    console.log("\n── E7 문턱 표(크기순, prompt는 제공사가 센 실제 토큰) ──");
+    console.log("| 목표 | prompt | cached | cacheWr | cost($) | ms |");
+    console.log("| --- | --- | --- | --- | --- | --- |");
+    for (const e of e7Rows) {
+      const r = results.find((x) => x.label === e.label)!;
+      console.log(`| ${e.target} | ${r.promptTokens ?? "-"} | ${r.cached ?? "-"} | ${r.cacheWrite ?? "-"} | ${r.cost ?? "-"} | ${r.ms} |${r.note ? ` ⚠ ${r.note}` : ""}`);
+    }
+  }
   console.log("\n── usage 원문(마지막 청크/응답) ──");
   for (const r of results) console.log(`${r.label}: ${JSON.stringify(r.rawUsage)}`);
   console.log("\n해석 가이드: E1-2의 cached가 0보다 크면 이 모델은 캐시를 지원하고 우리 쪽 보고도 정상. E1-2가 0이고 E2-2(session_id)만 크면 라우팅 문제(session_id 필요).");
@@ -267,6 +292,7 @@ async function probe() {
   console.log("E4: 4,500토큰급 두번째에서 cached가 생기고 1.9K급(E1/E2)에서만 0이면 최소 길이 문제. 9,000토큰급에서만 생기면 최소 길이가 더 크다. 전부 0이면 길이 때문이 아니다.");
   console.log("E6 판정: alpha·bravo 둘 다 첫 요청에서 cached>0 → '매 요청 할인' 방식(cached는 재사용이 아니라 이번 요청에서 쓴 만큼을 센 값일 수 있음, cacheWr·cost와 대조). 둘 다 0 → '재사용' 방식(같은 접두사를 다시 보낼 때만 cached). 한쪽만 >0이면 원문 usage와 id로 확인.");
   console.log("E5/E5b: 두번째 요청에서 cached>0 이거나 첫번째에서 cacheWr>0 이면 명시적 캐시가 동작. 에러(HTTP 4xx)나 둘 다 0이면 이 모델/경로에서 cache_control이 무시되거나 최소 길이 미달(note/원문 usage 확인). cost 열은 제공사가 청구한 실제 금액이라 캐시 쓰기/읽기 단가 확인에도 쓴다.");
+  console.log("E7 문턱: 크기순으로 처음 cached>0이 되는 요청의 prompt 값이 문턱의 상한, 바로 아래 크기(cached=0)의 prompt 값이 하한이다(처음 cached>0이 되는 크기가 문턱). 전부 0이면 문턱은 가장 큰 크기보다 위(5.8K 이하), 전부 >0이면 가장 작은 크기보다 아래다. 간격을 좁히려면 --e7-targets 로 다시 잰다. 실패(⚠)한 행은 판정에서 뺀다.");
 }
 
 (cmd === "dump" ? Promise.resolve(dump()) : probe()).catch((e) => {
