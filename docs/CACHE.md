@@ -89,3 +89,33 @@
 
 - `haru-card-v3.md`를 `prisma/seed-data/haru.json`에 반영(필드 전체 교체, 로어북 정원·고양이·솔바람 삭제 / 윤 선생님·동화 시간 수정 / 등불 축제·연체 메모 추가). 개발 DB도 같은 내용으로 갱신(관리자 수정이 없는 항목만).
 - 고정 블록 길이: 5,213자. 지금까지의 실측 배율(0.55~0.62)로 보면 **약 2.9K~3.2K토큰**이고, 카드 문서가 목표로 적은 4.2K에는 못 미친다(문서의 추정 방식과 이 프로젝트의 실측 배율이 다른 것으로 보인다). 첫 턴은 `CACHE_MIN_TOKENS`(4096) 미만이라 breakpoint가 붙지 않고, 대화가 쌓여 앞부분이 4096토큰을 넘으면 붙는다. 첫 턴부터 붙이려면 고정 블록을 늘리거나 `CACHE_MIN_TOKENS`를 낮추는 선택지가 있다(캐시 토큰 단가가 입력의 15.6%이므로 짧은 앞부분에서는 손해일 수 있음, 미검증). 실제 `prompt_tokens`로 먼저 확인할 것.
+
+## 캐시가 깨진 원인 보기 (접두사 진단)
+
+cached 토큰 수만으로는 적중이 안 된 이유를 알 수 없어서, 대화 호출마다 블록별 해시를 남기고 직전 턴과 비교한 결과를 `UsageLog.blockTokens.cacheBreak`에 기록한다(원문은 저장하지 않는다).
+
+| 값 | 뜻 |
+| --- | --- |
+| `first` | 이 대화의 첫 대화 호출(비교 대상 없음). 이 기능 이전에 기록된 행 다음의 첫 호출도 여기에 든다 |
+| `none` | 접두사 유지. 이때 cached가 0이면 원인은 프롬프트가 아니라 제공사 쪽(최소 길이 미달, TTL 만료, 라우팅)이다 |
+| `fixed` | 캐릭터 카드·안전 지시가 바뀜 |
+| `summary` | 요약이 생기거나 갱신됨 |
+| `lorebook` | 걸린 로어북이 달라짐(`LOREBOOK_POSITION=beforeInput`이면 접두사 밖이라 기록되지 않음) |
+| `recent_window` | 최근 대화 시작점이 움직임(토큰 예산 초과로 오래된 메시지가 잘린 경우 등) |
+| `layout` | 로어북 위치 설정이 바뀜 |
+
+여러 블록이 함께 바뀌면 프롬프트 순서로 가장 앞의 것 하나만 기록한다(그 뒤는 어차피 전부 무효).
+
+원인별 적중 현황(읽기 전용):
+
+```sql
+select "blockTokens"->>'cacheBreak' as cache_break,
+       count(*) as turns,
+       sum(("cachedInputTokens" > 0)::int) as hit_turns,
+       round(avg("cachedInputTokens"::numeric / nullif("inputTokens", 0)), 2) as avg_cached_ratio
+from "UsageLog"
+where kind = 'CHAT' and not "usageEstimated"
+group by 1 order by 2 desc;
+```
+
+한계: 진단은 "우리가 보낸 프롬프트가 같았는가"만 본다. 실제 적중 여부는 제공사가 정하므로 `none`인데 cached=0인 턴이 곧 제공사 쪽 원인을 가리킨다. 응답이 비었거나 모델 호출이 실패한 턴은 UsageLog가 없어 비교에서 빠진다.

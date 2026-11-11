@@ -8,6 +8,7 @@ import { resolveRuntime } from "@/lib/llm/runtime";
 import { LlmError, type StreamMeta, type Usage } from "@/lib/llm/types";
 import { explainEmptyResponse } from "@/lib/llm-settings";
 import { assemblePrompt } from "@/lib/chat/assemble";
+import { diagnoseCacheBreak, readPrefixHashes } from "@/lib/chat/prefix-diag";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
 import { updateSummaryForConversation } from "@/lib/memory/db";
@@ -254,11 +255,18 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
 
         // 사용량 기록은 응답 표시 뒤에. 회수된 응답도 비용은 발생했으니 기록한다.
         try {
+          // 캐시 접두사 진단: 이 대화의 직전 대화 호출과 블록 해시를 비교해 어디서 깨졌는지 남긴다.
+          const prevChat = await prisma.usageLog.findFirst({
+            where: { conversationId, kind: "CHAT" },
+            orderBy: { createdAt: "desc" },
+            select: { blockTokens: true },
+          });
+          const cacheBreak = diagnoseCacheBreak(readPrefixHashes(prevChat?.blockTokens), assembled.prefix);
           const row = buildUsageRow({
             model: chatModel,
             usage,
             blockTokens: assembled.blockTokens,
-            promptMeta: { lorebookIds: assembled.lorebookIds, droppedRecent: assembled.droppedRecent },
+            promptMeta: { lorebookIds: assembled.lorebookIds, droppedRecent: assembled.droppedRecent, prefix: assembled.prefix, cacheBreak },
             estimatedInputTokens: assembled.blockTokens.total,
             outputText: text,
             ttftMs,

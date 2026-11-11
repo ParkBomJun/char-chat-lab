@@ -1,10 +1,17 @@
 import type { Usage } from "@/lib/llm/types";
 import type { BlockTokens } from "@/lib/chat/assemble";
+import type { CacheBreak, PrefixHashes } from "@/lib/chat/prefix-diag";
 import { estimateCost, type PricingTable, pricing } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens";
 
 /** 조립 결과의 디버깅용 부가 정보 */
-export type PromptMeta = { lorebookIds: string[]; droppedRecent: number };
+export type PromptMeta = {
+  lorebookIds: string[];
+  droppedRecent: number;
+  /** 블록별 해시(원문 없음)와, 직전 턴 대비 캐시 접두사가 처음 달라진 블록 */
+  prefix?: PrefixHashes;
+  cacheBreak?: CacheBreak;
+};
 
 export type UsageRowInput = {
   model: string;

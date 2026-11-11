@@ -1,5 +1,6 @@
 import type { ChatMessage } from "@/lib/llm/types";
 import { estimateTokens } from "@/lib/tokens";
+import { hashText, type PrefixHashes } from "./prefix-diag";
 
 export type CharacterCard = { name: string; persona: string; speechStyle: string; exampleDialog: string };
 export type HistoryMessage = { role: "USER" | "ASSISTANT" | "SYSTEM_NOTICE"; content: string };
@@ -54,6 +55,8 @@ export type AssembleResult = {
   cacheBreakpointIndex: number | null;
   /** breakpoint 후보 앞부분의 (환산된) 토큰 추정. 옵션이 꺼져 있으면 null. 진단용 */
   cachePrefixTokens: number | null;
+  /** 블록별 짧은 해시(원문 없음). 직전 턴과 비교해 캐시 접두사가 어디서 깨졌는지 진단한다 */
+  prefix: PrefixHashes;
 };
 
 /**
@@ -123,8 +126,10 @@ export function assemblePrompt(
   const fixed = estimateTokens(fixedText);
 
   let summaryTokens = 0;
+  let summaryHash: string | null = null;
   if (summary && summary.trim()) {
     const text = renderSummaryBlock(summary.trim());
+    summaryHash = hashText(text);
     messages.push({ role: "system", content: text });
     summaryTokens = estimateTokens(text);
   }
@@ -182,5 +187,12 @@ export function assemblePrompt(
     overBudget: total > config.promptTokenBudget,
     cacheBreakpointIndex,
     cachePrefixTokens,
+    prefix: {
+      fixed: hashText(fixedText),
+      summary: summaryHash,
+      lorebook: loreMessage ? hashText(loreMessage.content) : null,
+      recentHead: kept.length ? hashText(`${kept[0].role}\n${kept[0].content}`) : null,
+      lorePos: loreBeforeInput ? "beforeInput" : "afterFixed",
+    },
   };
 }
