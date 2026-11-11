@@ -53,6 +53,14 @@ export class OpenAiCompatAdapter implements LlmAdapter {
 
   constructor(private readonly opts: OpenAiAdapterOptions) {}
 
+  /**
+   * OpenRouter는 요청한 파라미터를 지원하지 않는 제공사로 라우팅되면 response_format을 조용히 무시할 수 있다.
+   * 구조화 출력을 쓰는 요청에는 require_parameters를 켜서 json_schema를 지원하는 제공사로만 보낸다(없으면 오류 → 분류기는 fail closed).
+   */
+  private get requireParameters(): boolean {
+    return /^https:\/\/openrouter\.ai(\/|$)/i.test(this.opts.baseUrl);
+  }
+
   async *stream(req: LlmRequest): AsyncGenerator<LlmEvent> {
     const f = this.opts.fetchImpl ?? fetch;
     const timeout = AbortSignal.timeout(this.opts.timeoutMs ?? 60_000);
@@ -72,7 +80,10 @@ export class OpenAiCompatAdapter implements LlmAdapter {
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
           ...(this.opts.reasoningEffort ? { reasoning: { effort: this.opts.reasoningEffort } } : {}),
           ...(req.jsonSchema
-            ? { response_format: { type: "json_schema", json_schema: { name: req.jsonSchema.name, strict: true, schema: req.jsonSchema.schema } } }
+            ? {
+                response_format: { type: "json_schema", json_schema: { name: req.jsonSchema.name, strict: true, schema: req.jsonSchema.schema } },
+                ...(this.requireParameters ? { provider: { require_parameters: true } } : {}),
+              }
             : {}),
         }),
         signal,

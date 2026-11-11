@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { LlmError } from "@/lib/llm/types";
 import type { LlmAdapter, LlmEvent } from "@/lib/llm/types";
-import { describeFailure, cleanFinishReason, isFilterFinishReason } from "./failure";
+import { describeFailure, describeResponseShape, cleanFinishReason, isFilterFinishReason } from "./failure";
+import { RetryingClassifier } from "./retry";
 import { ClassifierError, LlmClassifier, MockClassifier, type Classifier } from "./classifier";
 import { checkInput } from "./input";
 import { checkOutputFinal } from "./output";
@@ -66,8 +67,11 @@ describe("LlmClassifier → ClassifierError.failure", () => {
     const ok = '{"verdict":"allow","category":"none","score":0,"reason":"r"}';
     expect((await fail(adapter([{ type: "delta", text: ok }, done("content_filter")]))).failure.errorKind).toBe("provider_filter");
   });
-  it("JSON이 아니면 parse_error(finish_reason 포함)", async () => {
-    expect((await fail(adapter([{ type: "delta", text: "죄송합니다" }, done("length")]))).failure).toEqual({ errorKind: "parse_error", httpStatus: null, finishReason: "length" });
+  it("JSON이 아니면 parse_error(finish_reason과 응답 모양 포함)", async () => {
+    expect((await fail(adapter([{ type: "delta", text: "죄송합니다" }, done("length")]))).failure).toEqual({
+      errorKind: "parse_error", httpStatus: null, finishReason: "length",
+      shape: { responseLength: 5, startsWithBrace: false, hasCodeFence: false, hasRefusalPattern: true },
+    });
   });
   it("타임아웃 → timeout", async () => {
     expect((await fail(adapter(new DOMException("t", "TimeoutError")))).failure.errorKind).toBe("timeout");
@@ -97,10 +101,50 @@ describe("ERROR 이벤트에 원인이 실린다", () => {
     const m = new MockClassifier();
     expect((await checkInput("[[filter-in]]", { classifier: m, threshold: T })).events.at(-1)).toMatchObject({ errorKind: "provider_filter", finishReason: "content_filter" });
     expect((await checkOutputFinal("[[timeout-out]]", "q", { classifier: m, threshold: T })).events[0]).toMatchObject({ errorKind: "timeout" });
-    expect((await checkInput("[[parse-in]]", { classifier: m, threshold: T })).events.at(-1)).toMatchObject({ errorKind: "parse_error", finishReason: "length" });
+    expect((await checkInput("[[parse-in]]", { classifier: m, threshold: T })).events.at(-1)).toMatchObject({ errorKind: "parse_error", hasRefusalPattern: true, startsWithBrace: false, hasCodeFence: false });
   });
   it("정상·차단 이벤트에는 오류 필드가 없다", async () => {
     const d = await checkInput("안녕", { classifier: new MockClassifier(), threshold: T });
     for (const e of d.events) expect(e).not.toHaveProperty("errorKind");
+  });
+});
+
+describe("parse_error: 원문 대신 응답 모양만 기록", () => {
+  it("describeResponseShape: 길이·'{' 시작·코드펜스·거절 표현", () => {
+    expect(describeResponseShape('{"verdict":"allow"')).toEqual({ responseLength: 18, startsWithBrace: true, hasCodeFence: false, hasRefusalPattern: false });
+    expect(describeResponseShape('  \n{x')).toMatchObject({ startsWithBrace: true });
+    expect(describeResponseShape('```json\n{"a":1}\n```')).toMatchObject({ startsWithBrace: false, hasCodeFence: true });
+    for (const t of ["그건 할 수 없습니다", "I cannot help with that", "Sorry, I can't do that", "I'm sorry", "죄송합니다", "Unable to comply"]) {
+      expect(describeResponseShape(t).hasRefusalPattern).toBe(true);
+    }
+    expect(describeResponseShape('{"verdict":"allow","category":"none","score":0,"reason":"안전"}').hasRefusalPattern).toBe(false);
+    expect(describeResponseShape("")).toEqual({ responseLength: 0, startsWithBrace: false, hasCodeFence: false, hasRefusalPattern: false });
+  });
+  it("ERROR 이벤트에 모양 필드가 실리고, 원문은 어디에도 없다", async () => {
+    const T = 0.8;
+    const secret = "민감한비밀문장은저장되면안됨 죄송합니다 할 수 없습니다";
+    const inner = { classify: async () => { throw new ClassifierError("x", { failure: describeFailure(null, { parseFailed: true, rawText: secret, finishReason: "stop" }) }); } };
+    const d = await checkInput("안녕", { classifier: inner, threshold: T });
+    const ev = d.events.at(-1)!;
+    expect(ev).toMatchObject({ verdict: "ERROR", errorKind: "parse_error", finishReason: "stop", responseLength: secret.length, startsWithBrace: false, hasCodeFence: false, hasRefusalPattern: true });
+    expect(JSON.stringify(ev)).not.toContain("민감한비밀문장");
+    expect(JSON.stringify(d)).not.toContain("민감한비밀문장");
+  });
+  it("모양 필드는 parse_error에만: 다른 ERROR 이벤트에는 없다", async () => {
+    const d = await checkInput("[[500-in]]", { classifier: new MockClassifier(), threshold: 0.8 });
+    for (const k of ["responseLength", "startsWithBrace", "hasCodeFence", "hasRefusalPattern"]) expect(d.events.at(-1)).not.toHaveProperty(k);
+  });
+  it("mock [[parse-in]]/[[fence-in]]: 실제 파서를 거쳐 모양이 기록되고 재시도하지 않는다", async () => {
+    for (const [tag, shape, ] of [["parse", { startsWithBrace: false, hasCodeFence: false, hasRefusalPattern: true }], ["fence", { startsWithBrace: false, hasCodeFence: true, hasRefusalPattern: false }]] as const) {
+      const inner = new MockClassifier();
+      const spy = vi.spyOn(inner, "classify");
+      const sleep = vi.fn(async () => {});
+      const d = await checkInput(`[[${tag}-in]]`, { classifier: new RetryingClassifier(inner, { retries: 1, delayMs: 300, sleep }), threshold: 0.8 });
+      expect(spy).toHaveBeenCalledTimes(1); // parse_error는 재시도하지 않는다(데이터를 먼저 본다)
+      expect(sleep).not.toHaveBeenCalled();
+      expect(d.events.at(-1)).toMatchObject({ verdict: "ERROR", action: "blocked", errorKind: "parse_error", retryCount: 0, ...shape });
+      expect(d.events.at(-1)?.responseLength).toBeGreaterThan(0);
+      expect(d.outcome).toBe("error"); // 기존대로 fail closed
+    }
   });
 });

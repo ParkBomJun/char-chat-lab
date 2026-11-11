@@ -4,6 +4,28 @@ import { LlmError } from "@/lib/llm/types";
 export const ERROR_KINDS = ["http_status", "provider_filter", "parse_error", "timeout"] as const;
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
+/** parse_error일 때 응답의 "모양"만(원문은 남기지 않는다) */
+export type ResponseShape = {
+  /** 응답 글자 수 */
+  responseLength: number;
+  /** 앞쪽 공백을 뺀 첫 글자가 '{' 인가 */
+  startsWithBrace: boolean;
+  hasCodeFence: boolean;
+  /** 거절·사과 표현을 포함하는가(모델이 판정 대신 거절했을 가능성) */
+  hasRefusalPattern: boolean;
+};
+
+const REFUSAL_PATTERN = /(할 수 없|수 없(습니다|어요|다)|도와드릴 수 없|제공할 수 없|죄송|거절|\bcannot\b|\bcan'?t\b|\bcan not\b|\bunable to\b|i'?m sorry|i am sorry|i won'?t|as an ai)/i;
+
+export function describeResponseShape(raw: string): ResponseShape {
+  return {
+    responseLength: raw.length,
+    startsWithBrace: raw.trimStart().startsWith("{"),
+    hasCodeFence: raw.includes("```"),
+    hasRefusalPattern: REFUSAL_PATTERN.test(raw),
+  };
+}
+
 export type FailureInfo = {
   /** 위 네 가지로 가를 수 없으면 null(알 수 없는 예외) */
   errorKind: ErrorKind | null;
@@ -11,6 +33,8 @@ export type FailureInfo = {
   httpStatus: number | null;
   /** 마지막 청크의 finish_reason(content_filter, length, error 등). 짧은 코드값만 남긴다 */
   finishReason: string | null;
+  /** errorKind=parse_error이고 응답 본문을 받은 경우의 모양 */
+  shape?: ResponseShape | null;
 };
 
 export const NO_FAILURE_INFO: FailureInfo = { errorKind: null, httpStatus: null, finishReason: null };
@@ -45,7 +69,7 @@ function chain(e: unknown): unknown[] {
  * 우선순위: 제공사 필터 > 타임아웃 > HTTP 상태 > 형식 오류.
  * `finishReason`은 응답을 끝까지 받은 경우의 값(예외가 없고 파싱만 실패한 경우 포함).
  */
-export function describeFailure(e: unknown, opts: { finishReason?: string | null; parseFailed?: boolean } = {}): FailureInfo {
+export function describeFailure(e: unknown, opts: { finishReason?: string | null; parseFailed?: boolean; rawText?: string } = {}): FailureInfo {
   const finishReason = cleanFinishReason(opts.finishReason);
   const llm = chain(e).find((x): x is LlmError => x instanceof LlmError);
   const httpStatus = llm?.status ?? null;
@@ -58,6 +82,6 @@ export function describeFailure(e: unknown, opts: { finishReason?: string | null
     return { errorKind: "timeout", httpStatus, finishReason };
   }
   if (httpStatus !== null) return { errorKind: "http_status", httpStatus, finishReason };
-  if (opts.parseFailed) return { errorKind: "parse_error", httpStatus: null, finishReason };
+  if (opts.parseFailed) return { errorKind: "parse_error", httpStatus: null, finishReason, ...(opts.rawText === undefined ? {} : { shape: describeResponseShape(opts.rawText) }) };
   return { errorKind: null, httpStatus: null, finishReason };
 }

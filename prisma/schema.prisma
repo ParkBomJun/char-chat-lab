@@ -153,26 +153,31 @@ model UsageLog {
 }
 
 model ModerationEvent {
-  id             String   @id @default(cuid())
-  conversationId String
-  messageId      String?
-  stage          ModStage
-  layer          ModLayer
-  verdict        Verdict
-  category       String?
-  score          Float?
-  action         String // none | blocked | retracted | warned | stopped | crisis_notice
+  id                String   @id @default(cuid())
+  conversationId    String
+  messageId         String?
+  stage             ModStage
+  layer             ModLayer
+  verdict           Verdict
+  category          String?
+  score             Float?
+  action            String // none | blocked | retracted | warned | stopped | crisis_notice
   /// verdict=ERROR일 때만: http_status | provider_filter | parse_error | timeout (분류 불가면 NULL). 원문은 저장하지 않는다.
-  errorKind      String?
-  httpStatus     Int?
+  errorKind         String?
+  httpStatus        Int?
   /// 분류기 응답의 finish_reason(코드값만)
-  finishReason   String?
+  finishReason      String?
+  /// errorKind=parse_error일 때만: 응답 모양(원문은 저장하지 않는다)
+  responseLength    Int?
+  startsWithBrace   Boolean?
+  hasCodeFence      Boolean?
+  hasRefusalPattern Boolean?
   /// 분류기가 차단(verdict=BLOCK, layer=CLASSIFIER)했을 때만: VERDICT_ONLY | SCORE_ONLY | BOTH. 규칙·흐름 차단과 그 밖의 행은 NULL
-  decisionSource String?
+  decisionSource    String?
   /// 분류기 호출 재시도 횟수와, 재시도로 늘어난 지연(ms). 재시도가 없으면 0/NULL
-  retryCount     Int      @default(0)
-  retryExtraMs   Int?
-  createdAt      DateTime @default(now())
+  retryCount        Int      @default(0)
+  retryExtraMs      Int?
+  createdAt         DateTime @default(now())
 
   @@index([conversationId, createdAt])
   @@index([stage, verdict])

@@ -102,7 +102,7 @@ describe("OpenRouter 프리셋·주소 힌트", () => {
   it("프리셋 주소는 유효한 https이고 OpenRouter는 구조화 출력이 기본 off", () => {
     expect(validateBaseUrl(PRESETS.openrouter.baseUrl)).toEqual({ ok: true, url: "https://openrouter.ai/api/v1" });
     expect(validateBaseUrl(PRESETS.openai.baseUrl)).toMatchObject({ ok: true });
-    expect(PRESETS.openrouter.structuredOutput).toBe(false);
+    expect(PRESETS.openrouter.structuredOutput).toBe(true);
     expect(PRESETS.openai.structuredOutput).toBe(true);
   });
   it("OpenRouter에서 경로를 잘못 넣으면 힌트, 맞거나 다른 호스트면 null", () => {

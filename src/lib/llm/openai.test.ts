@@ -96,6 +96,23 @@ describe("OpenAiCompatAdapter", () => {
     ]);
     expect(JSON.stringify(body)).not.toContain("cacheBreakpoint");
   });
+  it("구조화 출력: response_format json_schema(strict). require_parameters는 OpenRouter에서만, jsonSchema가 있을 때만", async () => {
+    const send = async (baseUrl: string, withSchema: boolean) => {
+      let body: Record<string, unknown> = {};
+      const adapter = new OpenAiCompatAdapter({ baseUrl, apiKey: "k", fetchImpl: async (_u, init) => { body = JSON.parse(String(init!.body)); return sseResponse(["data: [DONE]\n\n"]); } });
+      await collect(adapter.stream({ model: "m", messages: [{ role: "user", content: "U" }], ...(withSchema ? { jsonSchema: { name: "safety_verdict", schema: { type: "object" } } } : {}) }));
+      return body;
+    };
+    const or = await send("https://openrouter.ai/api/v1", true);
+    expect(or.response_format).toEqual({ type: "json_schema", json_schema: { name: "safety_verdict", strict: true, schema: { type: "object" } } });
+    expect(or.provider).toEqual({ require_parameters: true });
+    const oa = await send("https://api.openai.com/v1", true);
+    expect(oa.response_format).toMatchObject({ type: "json_schema" });
+    expect(oa).not.toHaveProperty("provider");
+    const chat = await send("https://openrouter.ai/api/v1", false); // 대화 호출은 구조화 출력 없음
+    expect(chat).not.toHaveProperty("response_format");
+    expect(chat).not.toHaveProperty("provider");
+  });
   it("cache_control은 openrouter.ai 주소에서만 기본 허용, 그 밖의 주소에서는 표시를 떼고 문자열 content로 보낸다", async () => {
     const send = async (baseUrl: string) => {
       let body: { messages: { content: unknown }[] } = { messages: [] };

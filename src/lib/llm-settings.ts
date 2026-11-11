@@ -172,8 +172,11 @@ export function redact(message: string, secret: string | null | undefined): stri
 
 export const PRESETS = {
   openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", structuredOutput: true },
-  /** OpenRouter: 모델마다 구조화 출력(json_schema) 지원이 달라 미지원 모델은 요청이 오류로 실패한다 → 기본 off */
-  openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", structuredOutput: false },
+  /**
+   * OpenRouter: 분류기는 json_schema(strict)를 쓴다. 요청에 provider.require_parameters를 붙여 미지원 제공사로 가지 않게 하므로,
+   * 모델이 구조화 출력을 지원하지 않으면 요청이 오류가 되고 분류기는 fail closed(ERROR)로 막힌다 → 관리자 화면의 "연결 테스트"로 먼저 확인한다.
+   */
+  openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", structuredOutput: true },
 } as const;
 
 /** OpenRouter 주소를 잘못 넣은 흔한 경우(예: https://openrouter.ai/v1)를 알려 준다. 맞으면 null. */

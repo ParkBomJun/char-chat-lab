@@ -212,6 +212,10 @@ model ModerationEvent {
   action         String    // none | blocked | retracted | warned | stopped | crisis_notice
   decisionSource String?   // 분류기 차단일 때만: VERDICT_ONLY | SCORE_ONLY | BOTH (차단 규칙은 verdict=block OR score ≥ 임계값)
   errorKind      String?   // verdict=ERROR일 때만: http_status | provider_filter | parse_error | timeout (분류 불가면 NULL)
+  responseLength Int?      // errorKind=parse_error일 때만 응답 모양(원문은 저장하지 않음): 글자 수 /
+  startsWithBrace Boolean? //   '{' 시작 여부 /
+  hasCodeFence   Boolean?  //   코드펜스 포함 여부 /
+  hasRefusalPattern Boolean? // 거절·사과 표현 포함 여부. parse_error는 재시도하지 않는다(데이터를 먼저 본다)
   httpStatus     Int?      // HTTP 응답을 받은 경우의 상태 코드
   finishReason   String?   // 분류기 응답의 finish_reason(코드값만). content_filter 등은 provider_filter로 기록
   createdAt      DateTime @default(now())

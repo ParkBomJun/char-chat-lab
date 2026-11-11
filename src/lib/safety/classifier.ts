@@ -67,10 +67,17 @@ export class ClassifierError extends Error {
 }
 
 /** catch한 예외에서 ERROR 이벤트용 원인 필드를 만든다. 분류기가 아닌 예외도 분류해 본다. */
-export function failureOf(e: unknown): Pick<ModEvent, "errorKind" | "httpStatus" | "finishReason" | "retryCount" | "retryExtraMs"> {
+export function failureOf(e: unknown): Pick<ModEvent, "errorKind" | "httpStatus" | "finishReason" | "retryCount" | "retryExtraMs" | "responseLength" | "startsWithBrace" | "hasCodeFence" | "hasRefusalPattern"> {
   const f = e instanceof ClassifierError && e.failure.errorKind !== null ? e.failure : e instanceof ClassifierError ? NO_FAILURE_INFO : describeFailure(e);
   const r = e instanceof ClassifierError ? { retryCount: e.retryCount, retryExtraMs: e.retryExtraMs } : { retryCount: 0, retryExtraMs: 0 };
-  return { errorKind: f.errorKind, httpStatus: f.httpStatus, finishReason: f.finishReason, ...r };
+  const shape = f.errorKind === "parse_error" && f.shape ? f.shape : null;
+  return {
+    errorKind: f.errorKind,
+    httpStatus: f.httpStatus,
+    finishReason: f.finishReason,
+    ...r,
+    ...(shape ? { responseLength: shape.responseLength, startsWithBrace: shape.startsWithBrace, hasCodeFence: shape.hasCodeFence, hasRefusalPattern: shape.hasRefusalPattern } : {}),
+  };
 }
 
 /** 재시도 끝에 성공한 호출이면 이벤트에 재시도 정보를 싣는다(재시도가 없었으면 아무것도 안 붙인다). */
@@ -100,7 +107,7 @@ export function buildClassifierMessages(stage: ClassifyStage, text: string, cont
 
 /** 모델 출력에서 JSON 객체를 꺼내 스키마로 검증. 코드 펜스·앞뒤 설명이 있어도 첫 객체만 본다. */
 export function parseVerdict(raw: string, failure?: FailureInfo): ClassifierVerdict {
-  const fail = failure ?? { errorKind: "parse_error" as const, httpStatus: null, finishReason: null };
+  const fail = failure ?? describeFailure(null, { parseFailed: true, rawText: raw });
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end <= start) throw new ClassifierError("분류기 응답에 JSON이 없음", { failure: fail });
@@ -162,7 +169,7 @@ export class LlmClassifier implements Classifier {
       throw new ClassifierError("분류기 호출이 제공사 안전 필터에 막힘", { failure: describeFailure(null, { finishReason }) });
     }
     return {
-      verdict: parseVerdict(result.text, describeFailure(null, { finishReason, parseFailed: true })),
+      verdict: parseVerdict(result.text, describeFailure(null, { finishReason, parseFailed: true, rawText: result.text })),
       usage: result.usage,
       promptTokens: messages.reduce((n, m) => n + estimateTokens(m.content), 0),
       outputText: result.text,
@@ -175,7 +182,7 @@ export class LlmClassifier implements Classifier {
 /**
  * API 키가 없을 때 쓰는 결정적 분류기(개발·테스트용). 텍스트의 표식으로 결과를 정한다:
  *  [[block-in]]/[[block-out]] 차단, [[crisis-in]] 자해 차단, [[error-in]]/[[error-out]] 호출 실패(HTTP 500),
- *  [[500-*]]·[[429-*]]·[[400-*]] HTTP 오류, [[filter-*]] 제공사 필터, [[timeout-*]] 타임아웃, [[parse-*]] 형식 오류(in/out; 끝이 -once-in/-once-out이면 첫 호출만 실패),
+ *  [[500-*]]·[[429-*]]·[[400-*]] HTTP 오류, [[filter-*]] 제공사 필터, [[timeout-*]] 타임아웃, [[parse-*]]·[[fence-*]] 형식 오류(거절 문구 / 코드펜스, in/out; 끝이 -once-in/-once-out이면 첫 호출만 실패),
  *  [[risk:0.6]] 통과지만 점수 0.6 (흐름 감시 시험용). 표식이 없으면 allow 0.
  * 이 표식은 mock 환경에서만 의미가 있다. 실제 분류기는 LlmClassifier다.
  */
@@ -186,7 +193,11 @@ const MOCK_FAILURES: Record<string, FailureInfo> = {
   "400": { errorKind: "http_status", httpStatus: 400, finishReason: null },
   filter: { errorKind: "provider_filter", httpStatus: null, finishReason: "content_filter" },
   timeout: { errorKind: "timeout", httpStatus: null, finishReason: null },
-  parse: { errorKind: "parse_error", httpStatus: null, finishReason: "length" },
+};
+/** mock이 "모델이 이렇게 답했다"고 가정하는 JSON 아닌 응답. 실제 parseVerdict를 거쳐 응답 모양이 기록된다. */
+const MOCK_BAD_RESPONSES: Record<string, string> = {
+  parse: "죄송합니다. 그 요청은 판정할 수 없습니다.",
+  fence: "```json\n{not json}\n```",
 };
 
 export class MockClassifier implements Classifier {
@@ -201,13 +212,16 @@ export class MockClassifier implements Classifier {
       totalMs: 1,
       model: "mock-classifier",
     });
-    const fault = text.match(new RegExp(`\\[\\[(error|500|429|400|filter|timeout|parse)(-once)?-${dir}\\]\\]`));
+    const fault = text.match(new RegExp(`\\[\\[(error|500|429|400|filter|timeout|parse|fence)(-once)?-${dir}\\]\\]`));
     if (fault) {
       const key = `${fault[1]}|${stage}|${text}`;
       const firstTime = !this.failedOnce.has(key);
       if (fault[2]) this.failedOnce.add(key);
       // -once는 같은 텍스트의 첫 호출만 실패한다(재시도하면 성공).
-      if (!fault[2] || firstTime) throw new ClassifierError(`mock 분류기 장애(${fault[1]})`, { failure: MOCK_FAILURES[fault[1]] });
+      if (!fault[2] || firstTime) {
+        if (fault[1] in MOCK_BAD_RESPONSES) parseVerdict(MOCK_BAD_RESPONSES[fault[1]]); // ClassifierError(parse_error + 응답 모양)를 던진다
+        throw new ClassifierError(`mock 분류기 장애(${fault[1]})`, { failure: MOCK_FAILURES[fault[1]] });
+      }
     }
     if (text.includes(`[[block-${dir}]]`)) return make({ verdict: "block", category: "other", score: 0.95, reason: "mock 차단" });
     if (stage === "INPUT" && text.includes("[[crisis-in]]")) return make({ verdict: "block", category: "self_harm", score: 0.9, reason: "mock 위기" });
