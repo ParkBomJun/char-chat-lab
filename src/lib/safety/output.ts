@@ -1,5 +1,5 @@
 import { checkRules, type CompiledRule, defaultRules } from "./rules";
-import { isBlocked, type Classifier, type ClassifyCall } from "./classifier";
+import { failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
 export type StreamCheck = { blocked: false } | { blocked: true; category: string };
@@ -50,7 +50,7 @@ export async function checkOutputFinal(text: string, userInput: string, deps: Ou
     console.error("[safety] 출력 분류기 실패 → 회수(fail closed):", e instanceof Error ? e.message : e);
     return {
       outcome: "error",
-      events: [ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "retracted" })],
+      events: [ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "retracted", ...failureOf(e) })],
       turnScore: 0,
       calls: [],
     };
@@ -59,14 +59,14 @@ export async function checkOutputFinal(text: string, userInput: string, deps: Ou
   if (isBlocked(v, deps.threshold)) {
     return {
       outcome: "blocked",
-      events: [ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: "retracted" })],
+      events: [ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: "retracted", ...retryOf(call) })],
       turnScore: Math.max(v.score, deps.threshold),
       calls: [call],
     };
   }
   return {
     outcome: "allow",
-    events: [ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none" })],
+    events: [ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
     turnScore: v.score,
     calls: [call],
   };

@@ -1,5 +1,5 @@
 import { checkRules, type CompiledRule, defaultRules } from "./rules";
-import { isBlocked, type Classifier, type ClassifyCall } from "./classifier";
+import { failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
 /**
@@ -54,7 +54,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
     console.error("[safety] 입력 분류기 실패 → 차단(fail closed):", e instanceof Error ? e.message : e);
     return {
       outcome: "error",
-      events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "blocked" })],
+      events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "blocked", ...failureOf(e) })],
       turnScore: 0,
       calls: [],
     };
@@ -67,7 +67,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
       outcome: crisis ? "crisis" : "blocked",
       events: [
         ruleEvent,
-        ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: crisis ? "crisis_notice" : "blocked" }),
+        ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: crisis ? "crisis_notice" : "blocked", ...retryOf(call) }),
       ],
       turnScore: crisis ? 0 : Math.max(v.score, deps.threshold),
       calls: [call],
@@ -75,7 +75,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
   }
   return {
     outcome: "allow",
-    events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none" })],
+    events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
     turnScore: v.score,
     calls: [call],
   };

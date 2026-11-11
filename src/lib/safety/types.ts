@@ -1,3 +1,5 @@
+import type { ErrorKind } from "./failure";
+
 /** Prisma enum과 값이 같은 문자열 유니온(스키마의 ModStage/ModLayer/Verdict). */
 export type ModStage = "INPUT" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "CONVERSATION";
 export type ModLayer = "RULE" | "CLASSIFIER";
@@ -13,4 +15,12 @@ export type ModEvent = {
   category: string | null;
   score: number | null;
   action: ModAction;
+  /** verdict=ERROR일 때만: 원인(원문 없음). 그 밖에는 생략 */
+  errorKind?: ErrorKind | null;
+  httpStatus?: number | null;
+  finishReason?: string | null;
+  /** 분류기 호출을 재시도한 횟수(재시도가 있었던 이벤트에만). 성공·ERROR 모두 */
+  retryCount?: number;
+  /** 재시도로 늘어난 지연(ms) */
+  retryExtraMs?: number | null;
 };

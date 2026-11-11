@@ -17,6 +17,8 @@ const schema = z.object({
   MAX_OUTPUT_TOKENS: num(1024, 16),
   CLASSIFIER_BLOCK_THRESHOLD: flt(0.8),
   CLASSIFIER_TIMEOUT_MS: num(8000, 500),
+  CLASSIFIER_RETRIES: num(1, 0),
+  CLASSIFIER_RETRY_DELAY_MS: num(300, 0),
   FLOW_WINDOW_TURNS: num(5, 1),
   FLOW_MIN_TURNS: num(2, 1),
   FLOW_WARN_THRESHOLD: flt(0.5),
@@ -37,6 +39,8 @@ export type AppConfig = {
   /** 분류기 score가 이 값 이상이면 verdict와 무관하게 차단 */
   classifierBlockThreshold: number;
   classifierTimeoutMs: number;
+  classifierRetries: number;
+  classifierRetryDelayMs: number;
   /** 캐시 실험 옵션(E6 결과를 보고 기본값을 정한다). 기본: breakpoint 켬(E6 실측 후 결정, 2026-11-11), 로어북은 고정 블록 뒤 */
   cache: { breakpoint: boolean; minTokens: number; lorebookPosition: "afterFixed" | "beforeInput" };
   flow: { windowTurns: number; minTurns: number; warnThreshold: number; stopStrikes: number };
@@ -54,6 +58,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxOutputTokens: e.MAX_OUTPUT_TOKENS,
     classifierBlockThreshold: e.CLASSIFIER_BLOCK_THRESHOLD,
     classifierTimeoutMs: e.CLASSIFIER_TIMEOUT_MS,
+    classifierRetries: Math.min(e.CLASSIFIER_RETRIES, 2),
+    classifierRetryDelayMs: Math.min(e.CLASSIFIER_RETRY_DELAY_MS, 5000),
     cache: { breakpoint: e.CACHE_BREAKPOINT === "1" || e.CACHE_BREAKPOINT === "true", minTokens: e.CACHE_MIN_TOKENS, lorebookPosition: e.LOREBOOK_POSITION },
     flow: {
       windowTurns: e.FLOW_WINDOW_TURNS,

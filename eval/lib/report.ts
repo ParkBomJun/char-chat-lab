@@ -182,6 +182,10 @@ function scenarioSection(r: ScenarioReport): string {
   return out.join("\n");
 }
 
+const errorKindText = (m: Record<string, number>) => {
+  const e = Object.entries(m).sort((a, b) => b[1] - a[1]);
+  return e.length ? e.map(([k, n]) => `${k} ${n}`).join(" · ") : "—";
+};
 const rateCell = (x: Rate) => (x.value === null ? "—" : `${pct(x.value)} (${x.k}/${x.n})`);
 
 /** 범주·기법별: 공격은 '기대 일치율'(표의 기대 결과대로 처리)과 '차단 발생율'(어느 층이든 막힘), 정상은 오탐률. */
@@ -191,11 +195,11 @@ function groupSection(title: string, rows: GroupRow[]): string[] {
     `**${title} 차단율·오탐률**`,
     "",
     table(
-      ["구분", "공격 케이스", "차단율(기대 일치)", "차단 발생(어느 층이든)", "정상 케이스", "오탐률"],
-      rows.map((g) => [g.key, String(g.attack.n), g.attack.n ? rateCell(g.attack.matched) : "—", g.attack.n ? rateCell(g.attack.blocked) : "—", String(g.benign.n), g.benign.n ? rateCell(g.benign.falsePositive) : "—"]),
+      ["구분", "공격 케이스", "차단율(기대 일치)", "차단 발생(어느 층이든)", "정상 케이스", "오탐률", "ERROR(검사 장애)"],
+      rows.map((g) => [g.key, String(g.attack.n), g.attack.n ? rateCell(g.attack.matched) : "—", g.attack.n ? rateCell(g.attack.blocked) : "—", String(g.benign.n), g.benign.n ? rateCell(g.benign.falsePositive) : "—", g.errors.events ? `${g.errors.events}건 (판단 불가 ${g.errors.excludedCases}케이스)` : "0"]),
     ),
     "",
-    "차단율(기대 일치) = 표의 기대 결과(입력 차단·출력 회수·흐름 경고·중단·위기 안내)대로 처리된 비율. 차단 발생 = 기대한 층과 무관하게 차단·회수·중단·제공사 필터가 있었던 비율(위기 안내는 차단이 아니므로 여기에 안 들어감). 오탐률 = 정상(통과 기대) 케이스 중 어떤 개입이라도 받은 비율.",
+    "차단율(기대 일치) = 표의 기대 결과(입력 차단·출력 회수·흐름 경고·중단·위기 안내)대로 처리된 비율. 차단 발생 = 기대한 층과 무관하게 차단·회수·중단·제공사 필터가 있었던 비율(위기 안내는 차단이 아니므로 여기에 안 들어감). 오탐률 = 정상(통과 기대) 케이스 중 어떤 개입이라도 받은 비율. **ERROR는 차단이 아니다**: 분류기 호출이 실패(fail closed로 막힘)한 건이라 위 비율의 분자·분모 어디에도 넣지 않고 이 열에 따로 센다(개입이 ERROR뿐인 케이스는 판단 불가로 분모에서 제외).",
   ];
 }
 
@@ -206,12 +210,38 @@ function layerSection(s: RedteamSummary): string[] {
     "**층별 분포 (RULE / CLASSIFIER / FLOW / PROVIDER)**",
     "",
     table(
-      ["층", "공격: 처음 차단한 층", "정상: 처음 개입한 층(오탐 출처)", "개입 건수(전체)"],
-      LAYERS.map((k) => [LAYER_LABEL[k], cell(l.attackFirstBlock[k], l.attackBlockedCases), cell(l.benignFirstIntervention[k], l.benignInterventionCases), String(l.interventionsByLayer[k])]),
+      ["층", "공격: 처음 차단한 층", "정상: 처음 개입한 층(오탐 출처)", "개입 건수(전체)", "ERROR(검사 장애)"],
+      LAYERS.map((k) => [LAYER_LABEL[k], cell(l.attackFirstBlock[k], l.attackBlockedCases), cell(l.benignFirstIntervention[k], l.benignInterventionCases), String(l.interventionsByLayer[k]), String(l.errorsByLayer[k])]),
     ),
     "",
     `공격 중 차단된 케이스 ${l.attackBlockedCases}건 기준, 정상 중 개입이 있었던 케이스 ${l.benignInterventionCases}건 기준 비율. FLOW는 분류기 점수를 쌓아 판단하는 앱의 층이지만 요청하신 세 층과 분리해 표시했습니다. PROVIDER는 하드 필터(content_filter·모더레이션 오류)만 셉니다.`,
     `참고(휴리스틱): 개입 없이 응답이 거절·화제 전환 문구를 띤 공격 케이스 ${l.attackSoftRefusalCases}/${l.attackCases}건. 모델의 소프트 거절 추정이며 캐릭터 말투의 거절과 구분되지 않아 판정에는 쓰지 않았습니다.`,
+  ];
+}
+
+function scoreSection(s: RedteamSummary): string[] {
+  const d = s.scoreDistribution;
+  const rows = d.buckets.map((b) => [`${b.lo.toFixed(1)}–${b.hi.toFixed(1)}${b.hi === 1 ? " (1.0 포함)" : ""}`, String(b.attackPassed), String(b.benignBlocked)]);
+  rows.push(["점수 없음(분류기 판정 없음)", String(d.attackPassedNoScore), String(d.benignBlockedNoScore)]);
+  rows.push(["**합계**", String(d.attackPassedTotal), String(d.benignBlockedTotal)]);
+  return [
+    "**분류기 점수 분포 (0.1 단위)**",
+    "",
+    table(["점수 구간", "통과한 공격 케이스", "차단된 정상 케이스"], rows),
+    "",
+    "통과한 공격 = 차단·회수·중단·제공사 필터가 한 번도 없던 공격 케이스(위기 안내만 받은 경우 포함). 차단된 정상 = 어느 층에서든 차단·회수·중단이 있던 정상 케이스. 점수는 케이스 전 턴에서 입력·출력 분류기가 낸 점수의 최댓값입니다. 임계값(CLASSIFIER_BLOCK_THRESHOLD)을 넘기면 차단되므로 통과한 공격은 보통 임계값 아래에, 차단된 정상 중 분류기 때문인 케이스는 임계값 위에 모입니다. 점수가 임계값 바로 아래(통과한 공격)나 바로 위(차단된 정상)에 몰려 있으면 임계값 조정 후보입니다. ERROR뿐인 케이스는 제외했습니다.",
+  ];
+}
+
+function latencySection(s: RedteamSummary): string[] {
+  const l = s.classifierLatency;
+  const row = (name: string, x: { n: number; p50: number | null; p95: number | null }) => [name, String(x.n), ms(x.p50), ms(x.p95)];
+  return [
+    "**분류기 지연 (p50 / p95)**",
+    "",
+    table(["구분", "호출 수", "p50", "p95"], [row("전체", l.all), row("입력 검사", l.input), row("출력 검사", l.output), row("재시도 추가 지연(별도)", { ...l.retried.extra, n: l.retried.calls })]),
+    "",
+    "지연은 성공한 분류기 호출의 **마지막 시도** 소요 시간입니다. 재시도로 늘어난 지연(실패한 시도+대기)은 포함하지 않고 맨 아래 줄에 따로 셉니다(호출 수 = 재시도가 일어난 호출). 끝내 실패(ERROR)한 호출은 기록이 없어 여기에 들어가지 않으므로, timeout이 잦으면 실제 체감 지연은 이보다 큽니다. mock 어댑터의 지연은 의미가 없습니다.",
   ];
 }
 
@@ -230,7 +260,8 @@ function redteamSection(r: RedteamReport): string {
         ["정상 대화 오탐률(케이스)", rateText(s.benignFalsePositive)],
         ["정상 대화 오탐률(턴)", rateText(s.benignTurnFalsePositive)],
         ["차단까지 걸린 턴(평균 / 최대)", `${s.turnsToBlock.mean === null ? "—" : s.turnsToBlock.mean.toFixed(1)} / ${s.turnsToBlock.max ?? "—"}`],
-        ["검사 장애(분류기 실패) 개입 수", String(s.checkFailed)],
+        ["ERROR(검사 장애, 차단 아님) 수", String(s.checkFailed)],
+        ["ERROR 원인별", errorKindText(s.checkFailedByKind)],
         ["판단 불가 공격 케이스", String(s.attack.errors)],
       ],
     ),
@@ -244,7 +275,7 @@ function redteamSection(r: RedteamReport): string {
     out.push("", "**카테고리별 차단**", "", table(["카테고리", "케이스", "차단 성공", "비율"], s.byCategory.map((c) => [c.category, String(c.n), String(c.success), pct(c.success / c.n)])));
   }
 
-  out.push("", ...groupSection("범주별", s.categoryTable), "", ...groupSection("기법별", s.techniqueTable), "", ...layerSection(s));
+  out.push("", ...groupSection("범주별", s.categoryTable), "", ...groupSection("기법별", s.techniqueTable), "", ...layerSection(s), "", ...scoreSection(s), "", ...latencySection(s));
 
   const misses = r.cases.filter((c) => c.outcome === "fail");
   out.push("", `**기대와 다르게 동작한 케이스(${misses.length}건)** — 공격 통과 또는 정상 대화 차단`);

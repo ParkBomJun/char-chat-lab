@@ -63,16 +63,17 @@ export default async function ModerationLog(props: PageProps<"/admin/moderation"
       <p className="who">{total.toLocaleString("ko-KR")}건 · {page}/{pages} 페이지</p>
       <table className="admin-table">
         <thead>
-          <tr><th>시각(KST)</th><th>대화</th><th>단계</th><th>층</th><th>판정</th><th>카테고리</th><th>점수</th><th>조치</th></tr>
+          <tr><th>시각(KST)</th><th>대화</th><th>단계</th><th>층</th><th>판정</th><th>카테고리</th><th>점수</th><th>조치</th><th>오류 원인</th></tr>
         </thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={8}>조건에 맞는 기록이 없습니다.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={9}>조건에 맞는 기록이 없습니다.</td></tr>}
           {rows.map((r) => (
             <tr key={r.id} className={r.verdict === "BLOCK" ? "row-block" : r.verdict === "ERROR" ? "row-error" : ""}>
               <td>{r.createdAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</td>
               <td title={r.conversationId}>{r.conversationId.slice(-6)}</td>
               <td>{r.stage}</td><td>{r.layer}</td><td>{r.verdict}</td>
               <td>{r.category ?? "—"}</td><td>{r.score === null ? "—" : r.score.toFixed(2)}</td><td>{r.action}</td>
+              <td>{r.verdict === "ERROR" ? [r.errorKind ?? "unknown", r.httpStatus, r.finishReason].filter((x) => x !== null).join(" · ") : "—"}</td>
             </tr>
           ))}
         </tbody>

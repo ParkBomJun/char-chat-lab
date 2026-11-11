@@ -28,7 +28,7 @@ export async function logClassifierCalls(userId: string, conversationId: string,
         ttftMs: null,
         totalMs: c.totalMs,
       }, table);
-      await prisma.usageLog.create({ data: { userId, conversationId, kind: "CLASSIFIER", ...row, blockTokens: Prisma.DbNull } });
+      await prisma.usageLog.create({ data: { userId, conversationId, kind: "CLASSIFIER", ...row, retryCount: c.retryCount ?? 0, retryExtraMs: c.retryExtraMs ?? 0, blockTokens: Prisma.DbNull } });
     } catch (e) {
       console.error("[safety] 분류기 UsageLog 기록 실패", e);
     }

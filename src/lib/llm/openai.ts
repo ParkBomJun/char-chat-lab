@@ -78,7 +78,7 @@ export class OpenAiCompatAdapter implements LlmAdapter {
         signal,
       });
     } catch (e) {
-      throw new LlmError(`LLM 요청 실패: ${e instanceof Error ? e.message : String(e)}`);
+      throw new LlmError(`LLM 요청 실패: ${e instanceof Error ? e.message : String(e)}`, undefined, { cause: e });
     }
 
     if (!res.ok || !res.body) {

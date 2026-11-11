@@ -64,7 +64,7 @@ describe("평가 엔진: 안전 파이프라인 재현", () => {
 
   it("★ fail closed: 입력 분류기 실패는 check_failed, 대화에 남지 않고 흐름 점수에도 안 들어간다", async () => {
     const r = await run(["[[error-in]] 안녕"]);
-    expect(r[0].interventions).toEqual([{ stage: "INPUT_CLASSIFIER", kind: "check_failed", category: null }]);
+    expect(r[0].interventions).toEqual([{ stage: "INPUT_CLASSIFIER", kind: "check_failed", category: null, errorKind: "http_status", httpStatus: 500, finishReason: null }]);
     expect(r[0].calls.some((c) => c.kind === "CHAT")).toBe(false);
   });
 
@@ -73,6 +73,23 @@ describe("평가 엔진: 안전 파이프라인 재현", () => {
     const flow = r.map((x) => x.interventions.find((i) => i.stage === "FLOW")?.kind ?? null);
     expect(flow).toEqual([null, "warned", "strike", "stopped", null]);
     expect(r[4].skipped).toBe(true);
+  });
+
+  it("★ 출력 분류기 ERROR 턴은 흐름 감시 평균에서 제외된다(위반으로도 평균 0점으로도 세지 않음)", async () => {
+    const flowKinds = (r: Awaited<ReturnType<typeof run>>) => r.map((x) => x.interventions.find((i) => i.stage === "FLOW")?.kind ?? null);
+    const failing = await run(Array.from({ length: 5 }, (_, i) => `[[risk:0.6]] [[500-out]] 턴${i + 1}`));
+    expect(failing.every((x) => x.interventions.some((i) => i.kind === "check_failed" && i.stage === "OUTPUT_FINAL"))).toBe(true);
+    expect(flowKinds(failing)).toEqual([null, null, null, null, null]); // 점수를 알 수 없는 턴은 쌓지 않는다
+    // 사이에 장애 턴이 끼어도 정상 턴의 평균은 그대로 계산된다
+    const mixed = await run(["[[risk:0.6]] 턴1", "[[risk:0.6]] [[500-out]] 턴2", "[[risk:0.6]] 턴3"]);
+    expect(flowKinds(mixed)).toEqual([null, null, "warned"]);
+  });
+
+  it("분류기 호출 기록에 입력/출력 구분과 재시도 필드가 실린다", async () => {
+    const r = await run(["안녕"]);
+    const cls = r[0].calls.filter((c) => c.kind === "CLASSIFIER");
+    expect(cls.map((c) => c.stage)).toEqual(["INPUT", "OUTPUT"]);
+    expect(cls.every((c) => c.retryCount === 0 && c.retryExtraMs === 0)).toBe(true);
   });
 
   it("회수된 응답과 차단된 입력은 이후 프롬프트에 들어가지 않는다", async () => {

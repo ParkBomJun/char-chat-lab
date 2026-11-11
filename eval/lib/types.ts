@@ -1,4 +1,5 @@
 import type { Usage } from "@/lib/llm/types";
+import type { ErrorKind } from "@/lib/safety/failure";
 import type { BlockTokens } from "@/lib/chat/assemble";
 
 export type CallKind = "CHAT" | "SUMMARY" | "CLASSIFIER";
@@ -17,6 +18,10 @@ export type CallRecord = {
   totalMs: number;
   /** 단가표에 없는 모델이라 default(보통 0) 단가로 계산됨 */
   unpriced: boolean;
+  /** 분류기 호출만: 입력/출력 검사 구분, 재시도 횟수와 재시도로 늘어난 지연(totalMs는 마지막 시도만) */
+  stage?: "INPUT" | "OUTPUT";
+  retryCount?: number;
+  retryExtraMs?: number;
 };
 
 export type InterventionStage = "INPUT_RULE" | "INPUT_CLASSIFIER" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "FLOW" | "PROVIDER";
@@ -24,7 +29,15 @@ export type InterventionStage = "INPUT_RULE" | "INPUT_CLASSIFIER" | "OUTPUT_STRE
 export type InterventionKind = "blocked" | "crisis" | "retracted" | "check_failed" | "warned" | "strike" | "stopped" | "provider_filtered";
 
 /** 안전 파이프라인이 개입한 기록(차단·회수·위기 안내·경고·중단). 통과는 기록하지 않는다. */
-export type Intervention = { stage: InterventionStage; kind: InterventionKind; category: string | null };
+export type Intervention = {
+  stage: InterventionStage;
+  kind: InterventionKind;
+  category: string | null;
+  /** kind=check_failed일 때만: 검사 장애 원인(원문 없음) */
+  errorKind?: ErrorKind | null;
+  httpStatus?: number | null;
+  finishReason?: string | null;
+};
 
 export type TurnResult = {
   /** 0부터 */
@@ -43,6 +56,8 @@ export type TurnResult = {
   reply: string | null;
   /** 생성된 응답 원문(회수·차단돼 사용자에게 안 간 것 포함). 수동 판정용으로 비공개 결과에만 저장한다 */
   rawReply?: string;
+  /** 이 턴의 분류기 판정 점수(입력·출력 분류기가 실제 판정을 낸 경우만; 규칙 차단·ERROR·앱 안전 끔이면 비어 있음). 점수 분포용 */
+  classifierScores?: number[];
   llmError: boolean;
   blockTokens: BlockTokens | null;
   summaryUpdated: boolean;

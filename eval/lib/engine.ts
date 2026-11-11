@@ -18,6 +18,7 @@ import type { Classifier, ClassifyCall } from "@/lib/safety/classifier";
 import { evaluateFlow, type FlowConfig, type FlowStatus } from "@/lib/safety/flow";
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
+import { PROVIDER_FILTER_PATTERN } from "@/lib/safety/failure";
 import type { ModEvent } from "@/lib/safety/types";
 import { looksLikeRefusal } from "./metrics";
 import type { CallRecord, Intervention, InterventionKind, InterventionStage, TurnResult } from "./types";
@@ -45,7 +46,7 @@ export type EngineConfig = {
 };
 
 /** 제공사/모델의 하드 필터를 알리는 오류 문구(OpenRouter 모더레이션 403, 콘텐츠 정책 등). 모델이 말로 하는 거절은 해당하지 않는다. */
-export const PROVIDER_FILTER_PATTERN = /(moderation|flagged|content[_ -]?(filter|policy)|safety[_ -]?(filter|setting|block)|prohibited[_ -]?content|policy violation)/i;
+export { PROVIDER_FILTER_PATTERN };
 
 export type EngineDeps = { adapter: LlmAdapter; chatModel: string; lightModel: string; classifier: Classifier };
 
@@ -95,7 +96,7 @@ function toRecord(kind: CallRecord["kind"], row: ReturnType<typeof buildUsageRow
   };
 }
 
-function classifierRecord(c: ClassifyCall): CallRecord {
+function classifierRecord(c: ClassifyCall, stage: "INPUT" | "OUTPUT"): CallRecord {
   const row = buildUsageRow({
     model: c.model,
     usage: c.usage,
@@ -105,7 +106,12 @@ function classifierRecord(c: ClassifyCall): CallRecord {
     ttftMs: null,
     totalMs: c.totalMs,
   });
-  return toRecord("CLASSIFIER", row, c.model);
+  return { ...toRecord("CLASSIFIER", row, c.model), stage, retryCount: c.retryCount ?? 0, retryExtraMs: c.retryExtraMs ?? 0 };
+}
+
+/** 분류기가 실제 판정을 낸 이벤트의 점수(ERROR·규칙 층 제외) */
+export function classifierScoresOf(events: readonly ModEvent[]): number[] {
+  return events.filter((e) => e.layer === "CLASSIFIER" && e.verdict !== "ERROR" && typeof e.score === "number").map((e) => e.score as number);
 }
 
 /** ModEvent → 개입 기록. 통과(action=none)는 기록하지 않는다. */
@@ -117,7 +123,7 @@ export function interventionsFromEvents(events: readonly ModEvent[]): Interventi
       e.stage === "INPUT" ? (e.layer === "RULE" ? "INPUT_RULE" : "INPUT_CLASSIFIER") : e.stage === "OUTPUT_STREAM" ? "OUTPUT_STREAM" : e.stage === "OUTPUT_FINAL" ? "OUTPUT_FINAL" : "FLOW";
     const kind: InterventionKind =
       e.verdict === "ERROR" ? "check_failed" : e.action === "crisis_notice" ? "crisis" : (e.action as InterventionKind);
-    out.push({ stage, kind, category: e.category });
+    out.push(e.verdict === "ERROR" ? { stage, kind, category: e.category, errorKind: e.errorKind ?? null, httpStatus: e.httpStatus ?? null, finishReason: e.finishReason ?? null } : { stage, kind, category: e.category });
   }
   return out;
 }
@@ -159,8 +165,9 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     ? await checkInput(userInput, { classifier: deps.classifier, threshold: cfg.classifierThreshold })
     : { outcome: "allow" as const, events: [] as ModEvent[], calls: [] as ClassifyCall[], turnScore: 0 };
   result.inputCheckMs = now() - t0;
-  result.calls.push(...input.calls.map(classifierRecord));
+  result.calls.push(...input.calls.map((c) => classifierRecord(c, "INPUT")));
   result.interventions.push(...interventionsFromEvents(input.events));
+  result.classifierScores = classifierScoresOf(input.events);
 
   if (input.outcome === "error") return result; // 서비스: 503, 대화에 아무것도 남기지 않음, 흐름 감시 없음
 
@@ -235,6 +242,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
   const text = guard.text;
 
   let outputScore = 0;
+  let outputCheckFailed = false; // 출력 분류기 장애(ERROR) 턴은 흐름 감시 평균에서 뺀다(서비스와 동일)
   if (!result.llmError && text.length > 0) {
     let events: ModEvent[];
     let retracted = false;
@@ -250,10 +258,12 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
       result.outputCheckMs = now() - t1;
       events = [streamEvent(false), ...out.events];
       outputScore = out.turnScore;
-      result.calls.push(...out.calls.map(classifierRecord));
+      result.calls.push(...out.calls.map((c) => classifierRecord(c, "OUTPUT")));
       retracted = out.outcome !== "allow";
+      outputCheckFailed = out.outcome === "error";
     }
     result.interventions.push(...interventionsFromEvents(events));
+    result.classifierScores = [...(result.classifierScores ?? []), ...classifierScoresOf(events)];
     conv.add("ASSISTANT", text, retracted);
     result.reply = retracted ? null : text;
     result.rawReply = text;
@@ -271,7 +281,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     result.calls.push(toRecord("CHAT", row, deps.chatModel));
   }
 
-  const flow = appSafety ? applyFlow(conv, Math.max(input.turnScore, outputScore), cfg.flow) : null;
+  const flow = appSafety && !outputCheckFailed ? applyFlow(conv, Math.max(input.turnScore, outputScore), cfg.flow) : null;
   if (flow) result.interventions.push(flow);
 
   // ── 요약 갱신: 서비스에서는 응답 후 비동기. 여기서는 다음 턴 전에 끝나도록 기다린다. ──

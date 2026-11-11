@@ -212,6 +212,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
 
       const text = guard.text;
       let outputScore = 0;
+      let outputCheckFailed = false; // 출력 분류기 장애(ERROR)
 
       if (!failed && text.length > 0) {
         // ── [출력 안전 검사] 스트리밍 중 규칙 차단 또는 완료 후 분류기 ─────────────
@@ -229,7 +230,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
           calls = out.calls;
           outputScore = out.turnScore;
           if (out.outcome === "blocked") retractNotice = NOTICE.outputRetracted;
-          if (out.outcome === "error") retractNotice = NOTICE.checkFailed;
+          if (out.outcome === "error") {
+            retractNotice = NOTICE.checkFailed;
+            outputCheckFailed = true;
+          }
         }
 
         // 저장은 판정 뒤에: 회수 대상은 처음부터 retracted=true로 저장해 어떤 경로로도 이후 프롬프트에 들어가지 않는다.
@@ -272,9 +276,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
       }
 
       // ── [대화 흐름 감시] 입력·출력 중 높은 점수를 이번 턴 점수로 ───────────────
+      // 출력 분류기 장애(ERROR) 턴은 점수를 알 수 없으므로 평균에서 뺀다(0점으로 넣으면 평균이 내려가 감시가 약해진다).
       try {
-        const flow = await applyFlow(conversationId, Math.max(input.turnScore, outputScore), config.flow);
-        if (flow.notice) send("notice", flow.notice);
+        const flow = outputCheckFailed ? null : await applyFlow(conversationId, Math.max(input.turnScore, outputScore), config.flow);
+        if (flow?.notice) send("notice", flow.notice);
       } catch (e) {
         console.error("[safety] 흐름 감시 실패", e);
       }

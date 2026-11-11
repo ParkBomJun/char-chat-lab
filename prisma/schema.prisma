@@ -143,6 +143,8 @@ model UsageLog {
   actualCost        Decimal? // 제공사 usage.cost(실제 청구액). 있으면 비용 표시에서 우선
   ttftMs            Int? // 첫 토큰까지
   totalMs           Int
+  retryCount        Int       @default(0) // 분류기 호출을 재시도한 횟수(CLASSIFIER 행만 의미 있음)
+  retryExtraMs      Int       @default(0) // 재시도로 늘어난 지연(ms). totalMs는 마지막 시도만 잰다
   blockTokens       Json? // 조립기가 추정한 블록별 토큰(fixed/summary/lorebook/recent/input/total)
   createdAt         DateTime  @default(now())
 
@@ -160,6 +162,14 @@ model ModerationEvent {
   category       String?
   score          Float?
   action         String // none | blocked | retracted | warned | stopped | crisis_notice
+  /// verdict=ERROR일 때만: http_status | provider_filter | parse_error | timeout (분류 불가면 NULL). 원문은 저장하지 않는다.
+  errorKind      String?
+  httpStatus     Int?
+  /// 분류기 응답의 finish_reason(코드값만)
+  finishReason   String?
+  /// 분류기 호출 재시도 횟수와, 재시도로 늘어난 지연(ms). 재시도가 없으면 0/NULL
+  retryCount     Int      @default(0)
+  retryExtraMs   Int?
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])

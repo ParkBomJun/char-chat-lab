@@ -210,6 +210,9 @@ model ModerationEvent {
   category       String?
   score          Float?
   action         String    // none | blocked | retracted | warned | stopped | crisis_notice
+  errorKind      String?   // verdict=ERROR일 때만: http_status | provider_filter | parse_error | timeout (분류 불가면 NULL)
+  httpStatus     Int?      // HTTP 응답을 받은 경우의 상태 코드
+  finishReason   String?   // 분류기 응답의 finish_reason(코드값만). content_filter 등은 provider_filter로 기록
   createdAt      DateTime @default(now())
 }
 ```
@@ -227,7 +230,7 @@ model ModerationEvent {
 >   - `ModerationEvent.action`에 `strike`(경고 이후 반복 위반) 추가. 판정 기록에는 사용자 원문을 저장하지 않는다(카테고리·점수만).
 >   - 입력: 규칙(위기 > 차단) → 분류기. 정책 위반 입력은 `Message.retracted=true`로 저장(이후 프롬프트·요약·로어북·화면에서 제외), 위기 표현은 사용자 말을 남기고 109 안내(롤플레이 중단, 모델 호출 없음, 흐름 점수 0). 분류기가 `self_harm`으로 판정해도 위기 안내로 처리.
 >   - 출력: 스트리밍 중 규칙 층(누적 텍스트에 적용해 청크 경계 우회 방지, 위기 규칙은 출력에 미적용) → 완료 후 분류기. 차단·검사 실패면 응답을 처음부터 `retracted=true`로 저장하고 `retract` 이벤트로 화면의 말풍선을 안내문으로 교체. 판정 후 저장하므로 회수 대상은 어떤 경로로도 이후 프롬프트에 들어가지 않는다.
->   - fail closed: 분류기 타임아웃·오류·JSON 스키마 위반은 모두 차단. 입력 단계 실패는 HTTP 503(대화에 아무것도 남기지 않고 재시도 가능), 출력 단계 실패는 회수. 모두 `verdict=ERROR` 이벤트.
+>   - fail closed: 분류기 타임아웃·오류·JSON 스키마 위반은 모두 차단. 입력 단계 실패는 HTTP 503(대화에 아무것도 남기지 않고 재시도 가능), 출력 단계 실패는 회수. 모두 `verdict=ERROR` 이벤트이며 원인(`errorKind`·`httpStatus`·`finishReason`)을 남긴다(원문은 저장하지 않음). 제공사 안전 필터(`finish_reason=content_filter` 등)로 거부된 호출은 `provider_filter`. 평가 리포트에서 ERROR는 차단으로 세지 않고 별도 열로 집계한다. 일시적 장애(timeout·429·5xx)는 짧은 대기 뒤 1회 재시도하고(`CLASSIFIER_RETRIES`), 그래도 실패하면 fail closed. 입력·출력 ERROR 턴은 흐름 감시의 위반 횟수와 평균 어디에도 넣지 않는다.
 >   - 흐름 감시: 턴 점수 = max(입력 점수, 출력 점수)를 `ModerationEvent(stage=CONVERSATION, category=turn)`로 기록. 마지막 경고/위반 이후 최근 `FLOW_WINDOW_TURNS`(5)턴 평균이 `FLOW_WARN_THRESHOLD`(0.5) 이상이면 경고(최소 `FLOW_MIN_TURNS`(2)턴), 경고 뒤에는 1턴만으로도 위반(strike), `FLOW_STOP_STRIKES`(2)회면 `STOPPED`. 경고·위반이 나면 윈도우를 비워 행동을 고친 사용자가 과거 점수로 연달아 걸리지 않게 한다. 위기·검사 불가 턴은 0점.
 >   - 분류기 호출도 `UsageLog(kind=CLASSIFIER)`로 비용 기록.
 > - (7단계) 일일 사용량: 오늘(KST 자정 기준) 사용자가 보낸 `Message(role=USER)` 수로 센다. **차단·회수된 입력도 센다**(차단 메시지를 반복해 분류기 비용을 쓰게 하는 공격 방지). 한도 확인은 분류기·모델 호출보다 먼저, 초과 시 HTTP 429. 분류기 실패(503)로 메시지가 저장되지 않은 시도는 세지 않는다. 남은 수는 `X-Daily-Remaining` 응답 헤더와 채팅 화면에 표시. 관리자도 같은 한도를 받는다.

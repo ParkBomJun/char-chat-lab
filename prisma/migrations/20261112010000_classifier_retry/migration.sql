@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "ModerationEvent" ADD COLUMN "retryCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "retryExtraMs" INTEGER;
+
+-- AlterTable
+ALTER TABLE "UsageLog" ADD COLUMN "retryCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "retryExtraMs" INTEGER NOT NULL DEFAULT 0;

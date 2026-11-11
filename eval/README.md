@@ -118,3 +118,11 @@ npm run eval             # 둘 다
 
 - `run.ts` CLI · `lib/engine.ts` 대화 엔진(라우트 파이프라인을 DB 없이 재현) · `lib/metrics.ts` 지표 · `lib/report.ts` 문서 생성 · `lib/schema.ts`/`load.ts` 입력 검증.
 - 엔진은 `src/app/api/chat/[conversationId]/route.ts`를 손으로 옮긴 것이다. **라우트의 순서나 규칙을 바꾸면 엔진도 같이 고친다.** 지연에는 DB 왕복이 포함되지 않는다.
+
+## ERROR(검사 장애) 집계
+
+분류기 호출이 실패하면(타임아웃·HTTP 오류·제공사 필터·형식 위반) 서비스는 fail closed로 막지만, 그것은 **차단 판정이 아니라 검사 장애**입니다. 리포트에서는:
+
+- 차단율·오탐률의 분자·분모에 넣지 않고 범주별·기법별·층별 표의 **ERROR(검사 장애)** 열에 따로 셉니다. 개입이 ERROR뿐인 케이스는 "판단 불가"로 분모에서 뺍니다.
+- 요약 표에 **ERROR 원인별**(http_status / provider_filter / parse_error / timeout / unknown) 건수가 나옵니다.
+- DB `ModerationEvent`에는 `errorKind`·`httpStatus`·`finishReason`만 남고 원문은 저장하지 않습니다. mock 분류기는 `[[error-in]]`(500)·`[[filter-in]]`·`[[timeout-in]]`·`[[parse-in]]`(출력은 `-out`)로 각 경우를 재현합니다.
