@@ -52,7 +52,11 @@ export type RunSummary = {
   chatCallsWithUsage: number;
   summaryCallTokens: { input: number; output: number };
   classifierCallTokens: { input: number; output: number };
-  cost: { chat: number; summary: number; classifier: number; total: number; perTurn: number | null };
+  /**
+   * chat·summary·classifier·total·perTurn은 호출마다 실제 청구액(usage.cost)을 우선하고 없을 때만 단가표 추정을 쓴 합계.
+   * estTotal은 모든 호출의 단가표 추정 합계(비교용), actualCalls/calls는 실제 청구액이 있던 호출 수 / 전체 호출 수.
+   */
+  cost: { chat: number; summary: number; classifier: number; total: number; perTurn: number | null; estTotal: number; actualCalls: number; calls: number };
   unpricedCalls: number;
   ttft: { p50: number | null; p95: number | null; mean: number | null };
   /** 사용자가 체감하는 첫 토큰 = 입력 안전 검사 + 첫 토큰 */
@@ -102,7 +106,14 @@ export function summarizeRun(turns: readonly TurnResult[], minHangulRatio = DEFA
     chatCallsWithUsage: exact.length,
     summaryCallTokens: { input: sum(summary.map((c) => c.inputTokens)), output: sum(summary.map((c) => c.outputTokens)) },
     classifierCallTokens: { input: sum(cls.map((c) => c.inputTokens)), output: sum(cls.map((c) => c.outputTokens)) },
-    cost: { ...cost, total, perTurn: executed.length ? total / executed.length : null },
+    cost: {
+      ...cost,
+      total,
+      perTurn: executed.length ? total / executed.length : null,
+      estTotal: sum(calls.map((c) => c.estCost)),
+      actualCalls: calls.filter((c) => c.actualCost !== null).length,
+      calls: calls.length,
+    },
     unpricedCalls: calls.filter((c) => c.unpriced).length,
     ttft: { p50: percentile(ttfts, 50), p95: percentile(ttfts, 95), mean: mean(ttfts) },
     perceivedTtft: { p50: percentile(perceived, 50), p95: percentile(perceived, 95) },

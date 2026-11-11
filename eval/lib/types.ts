@@ -5,7 +5,7 @@ import type { ResponseQuality } from "@/lib/quality/metrics";
 
 export type CallKind = "CHAT" | "SUMMARY" | "CLASSIFIER";
 
-/** LLM 호출 1건의 측정값. 비용은 pricing.json 단가로 계산한 추정치. */
+/** LLM 호출 1건의 측정값. */
 export type CallRecord = {
   kind: CallKind;
   model: string;
@@ -14,10 +14,15 @@ export type CallRecord = {
   outputTokens: number;
   /** true면 제공사 usage가 없어 글자 수로 추정한 값 */
   usageEstimated: boolean;
+  /** 리포트가 합산하는 비용: 제공사 실제 청구액(usage.cost)이 있으면 그 값, 없으면 단가표 추정 */
   cost: number;
+  /** pricing.json 단가로 계산한 추정(비교용) */
+  estCost: number;
+  /** 제공사가 준 실제 청구액. 없으면 null */
+  actualCost: number | null;
   ttftMs: number | null;
   totalMs: number;
-  /** 단가표에 없는 모델이라 default(보통 0) 단가로 계산됨 */
+  /** 단가표에 없는 모델이라 추정이 default(보통 0) 단가로 계산됨 */
   unpriced: boolean;
   /** 분류기 호출만: 입력/출력 검사 구분, 재시도 횟수와 재시도로 늘어난 지연(totalMs는 마지막 시도만) */
   stage?: "INPUT" | "OUTPUT";

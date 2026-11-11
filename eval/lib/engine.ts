@@ -91,6 +91,8 @@ function toRecord(kind: CallRecord["kind"], row: ReturnType<typeof buildUsageRow
     outputTokens: row.outputTokens,
     usageEstimated: row.usageEstimated,
     cost: Number(row.actualCost ?? row.estCost),
+    estCost: Number(row.estCost),
+    actualCost: row.actualCost === null ? null : Number(row.actualCost),
     ttftMs: row.ttftMs,
     totalMs: row.totalMs,
     unpriced: pricing.models[model] === undefined,

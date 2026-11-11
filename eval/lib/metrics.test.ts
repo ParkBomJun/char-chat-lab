@@ -4,7 +4,7 @@ import type { CallRecord, Intervention, TurnResult } from "./types";
 
 const call = (o: Partial<CallRecord> = {}): CallRecord => ({
   kind: "CHAT", model: "m", inputTokens: 100, cachedInputTokens: 0, outputTokens: 10, usageEstimated: false,
-  cost: 0.001, ttftMs: 100, totalMs: 500, unpriced: false, ...o,
+  cost: 0.001, estCost: 0.001, actualCost: null, ttftMs: 100, totalMs: 500, unpriced: false, ...o,
 });
 const turn = (i: number, o: Partial<TurnResult> = {}): TurnResult => ({
   index: i, skipped: false, interventions: [], calls: [], inputCheckMs: 20, ttftMs: null, totalMs: null,
@@ -68,6 +68,15 @@ describe("summarizeRun / compareRuns", () => {
     const c = compareRuns(base, sum);
     expect(c.historySaving).toBeCloseTo(1 - 400 / 1000); // 이력은 60% 줄었지만
     expect(c.chatInputSaving).toBeCloseTo(0.15); // 전체 입력은 15%만 준다
+  });
+  it("비용은 실제 청구액 우선 합계, 단가표 추정 합계는 따로(비교용)", () => {
+    const s = summarizeRun([
+      turn(0, { calls: [call({ cost: 0.004, actualCost: 0.004, estCost: 0.005 }), call({ kind: "CLASSIFIER", cost: 0.0002, actualCost: null, estCost: 0.0002 })] }),
+    ]);
+    expect(s.cost.total).toBeCloseTo(0.0042); // 실제 0.004 + 추정 0.0002(실제 청구액 없는 호출)
+    expect(s.cost.estTotal).toBeCloseTo(0.0052);
+    expect(s.cost.actualCalls).toBe(1);
+    expect(s.cost.calls).toBe(2);
   });
   it("단가가 0이면 비용 절감률은 null", () => {
     const zero = summarizeRun([turn(0, { calls: [call({ cost: 0 })] })]);

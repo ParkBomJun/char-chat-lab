@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateCost, type PricingTable } from "./pricing";
+import { estimateCost, pricing, type PricingTable } from "./pricing";
 import { loadConfig } from "./config";
 
 const table: PricingTable = {
@@ -20,6 +20,13 @@ describe("estimateCost", () => {
     const r = estimateCost("g", { inputTokens: 7000, cachedInputTokens: 6297, cacheWriteTokens: 6297, outputTokens: 100 }, t);
     // 비캐시 703×0.75 + 6297×(0.075+0.041667) + 100×3.75 = 527.25 + 734.6... + 375 (÷1e6)
     expect(r.cost).toBeCloseTo((703 * 0.75 + 6297 * (0.075 + 0.041667) + 100 * 3.75) / 1e6, 12);
+  });
+  it("단가표의 google/gemini-3.8-flash가 실측 입력 청구액을 재현한다(2026-11-11, docs/CACHE.md)", () => {
+    const m = "google/gemini-3.8-flash";
+    // E4: 5,799토큰, 캐시 없음 → 입력 $0.00434925
+    expect(estimateCost(m, { inputTokens: 5799, cachedInputTokens: 0, outputTokens: 0 }, pricing).cost).toBeCloseTo(0.00434925, 8);
+    // E5b: 같은 길이, cached = cacheWr = 5647 → 입력 $0.00077282
+    expect(estimateCost(m, { inputTokens: 5799, cachedInputTokens: 5647, cacheWriteTokens: 5647, outputTokens: 0 }, pricing).cost).toBeCloseTo(0.00077282, 8);
   });
   it("쓰기 단가가 없으면 쓰기 항목은 0(기존 계산과 동일)", () => {
     expect(estimateCost("m", { inputTokens: 1000, cachedInputTokens: 400, cacheWriteTokens: 400, outputTokens: 100 }, table).cost).toBeCloseTo(0.0094, 10);
