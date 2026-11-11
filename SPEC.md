@@ -229,6 +229,8 @@ model ModerationEvent {
 >   - fail closed: 분류기 타임아웃·오류·JSON 스키마 위반은 모두 차단. 입력 단계 실패는 HTTP 503(대화에 아무것도 남기지 않고 재시도 가능), 출력 단계 실패는 회수. 모두 `verdict=ERROR` 이벤트.
 >   - 흐름 감시: 턴 점수 = max(입력 점수, 출력 점수)를 `ModerationEvent(stage=CONVERSATION, category=turn)`로 기록. 마지막 경고/위반 이후 최근 `FLOW_WINDOW_TURNS`(5)턴 평균이 `FLOW_WARN_THRESHOLD`(0.5) 이상이면 경고(최소 `FLOW_MIN_TURNS`(2)턴), 경고 뒤에는 1턴만으로도 위반(strike), `FLOW_STOP_STRIKES`(2)회면 `STOPPED`. 경고·위반이 나면 윈도우를 비워 행동을 고친 사용자가 과거 점수로 연달아 걸리지 않게 한다. 위기·검사 불가 턴은 0점.
 >   - 분류기 호출도 `UsageLog(kind=CLASSIFIER)`로 비용 기록.
+> - (7단계) 일일 사용량: 오늘(KST 자정 기준) 사용자가 보낸 `Message(role=USER)` 수로 센다. **차단·회수된 입력도 센다**(차단 메시지를 반복해 분류기 비용을 쓰게 하는 공격 방지). 한도 확인은 분류기·모델 호출보다 먼저, 초과 시 HTTP 429. 분류기 실패(503)로 메시지가 저장되지 않은 시도는 세지 않는다. 남은 수는 `X-Daily-Remaining` 응답 헤더와 채팅 화면에 표시. 관리자도 같은 한도를 받는다.
+> - (7단계) 관리자: `/admin`(요약), `/admin/moderation`(판정 로그: 단계·판정·카테고리 필터, 턴 점수 행은 기본 숨김), `/admin/characters`(캐릭터·로어북 편집). 권한은 레이아웃·페이지·**모든 서버 액션**이 각각 DB의 현재 역할을 확인하고, 관리자가 아니면 404. 캐시 적중률은 제공사 usage가 있는 대화 행만으로 계산(추정 행 제외). 캐릭터 삭제는 대화 이력 보존을 위해 지원하지 않고 비공개로 전환한다. 관리자 계정은 seed가 `ADMIN_EMAIL`/`ADMIN_PASSWORD`로 생성.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

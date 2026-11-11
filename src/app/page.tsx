@@ -29,6 +29,7 @@ export default async function Home() {
       <header className="site-header">
         <strong>char-chat-lab</strong>
         <form action={logoutAction}>
+          {session.user.role === "ADMIN" && <Link href="/admin" className="who">관리자 </Link>}
           <span className="who">{session.user.email}</span>
           <button type="submit" className="link">로그아웃</button>
         </form>

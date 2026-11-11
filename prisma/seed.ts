@@ -22,6 +22,18 @@ async function main() {
     create: { email, passwordHash },
   });
 
+  // 관리자 계정: ADMIN_EMAIL/ADMIN_PASSWORD가 둘 다 있을 때만 만든다. 데모 계정과 달리 role=ADMIN.
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminEmail && adminPassword) {
+    const adminHash = await bcrypt.hash(adminPassword, 12);
+    await prisma.user.upsert({
+      where: { email: adminEmail },
+      update: { passwordHash: adminHash, role: "ADMIN" },
+      create: { email: adminEmail, passwordHash: adminHash, role: "ADMIN" },
+    });
+  }
+
   // 오리지널 캐릭터 (자리표시 내용 — 이후 단계에서 다듬는다). 전연령.
   const data = {
     name: "하루",
@@ -68,7 +80,7 @@ async function main() {
     await prisma.lorebookEntry.upsert({ where: { id: l.id }, update: data, create: { id: l.id, ...data } });
   }
 
-  console.log(`seed 완료: 데모 계정 ${email}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
+  console.log(`seed 완료: 데모 계정 ${email}, 관리자 ${adminEmail && adminPassword ? adminEmail : "(미생성: ADMIN_EMAIL/ADMIN_PASSWORD 없음)"}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
 }
 
 main()

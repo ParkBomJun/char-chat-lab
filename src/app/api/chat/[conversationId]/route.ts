@@ -16,6 +16,8 @@ import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
 import { NOTICE } from "@/lib/safety/messages";
 import { applyFlow, logClassifierCalls, saveEvents, saveNotice } from "@/lib/safety/persist";
+import { countTodayMessages } from "@/lib/daily-limit";
+import { remainingMessages } from "@/lib/kst";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +34,8 @@ const SSE_HEADERS = {
 };
 
 /** 이미 정해진 이벤트 목록을 한 번에 내려보내고 닫는 SSE 응답 (입력 단계에서 거절된 경우). */
-function sseOnce(events: [string, unknown][]) {
-  return new Response(events.map(([e, p]) => formatSse(e, p)).join(""), { headers: SSE_HEADERS });
+function sseOnce(events: [string, unknown][], headers: Record<string, string>) {
+  return new Response(events.map(([e, p]) => formatSse(e, p)).join(""), { headers: { ...SSE_HEADERS, ...headers } });
 }
 
 export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conversationId]">) {
@@ -55,6 +57,19 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   if (conv.status === "STOPPED") return json(409, "중단된 대화입니다.");
 
   const config = loadConfig();
+
+  // ── [일일 사용량 확인] 초과면 거절. 분류기·모델을 부르기 전에 막는다 ───────────
+  const used = await countTodayMessages(userId);
+  const remainingHeader = (counted: boolean) => ({
+    "X-Daily-Remaining": String(remainingMessages(config.dailyMessageLimit, used + (counted ? 1 : 0))),
+  });
+  if (used >= config.dailyMessageLimit) {
+    return Response.json(
+      { error: `오늘 보낼 수 있는 메시지(${config.dailyMessageLimit}개)를 모두 사용했어요. 내일 다시 이용해 주세요.` },
+      { status: 429, headers: remainingHeader(false) },
+    );
+  }
+
   const classifier = getClassifier();
   const threshold = config.classifierBlockThreshold;
 
@@ -64,7 +79,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   if (input.outcome === "error") {
     // fail closed: 검사하지 못한 입력은 모델에 보내지 않는다. 대화에는 아무것도 남기지 않는다(재시도 가능).
     await saveEvents(conversationId, null, input.events);
-    return json(503, NOTICE.checkFailed);
+    return Response.json({ error: NOTICE.checkFailed }, { status: 503, headers: remainingHeader(false) }); // 메시지가 저장되지 않으므로 한도에 세지 않는다
   }
 
   if (input.outcome !== "allow") {
@@ -81,7 +96,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     const flow = await applyFlow(conversationId, input.turnScore, config.flow);
     const events: [string, unknown][] = [[crisis ? "crisis" : "blocked", { text, noticeId }]];
     if (flow.notice) events.push(["notice", flow.notice]);
-    return sseOnce(events);
+    return sseOnce(events, remainingHeader(true));
   }
 
   // ── 프롬프트 조립 ───────────────────────────────────────────────────────────
@@ -264,5 +279,5 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     },
   });
 
-  return new Response(stream, { headers: SSE_HEADERS });
+  return new Response(stream, { headers: { ...SSE_HEADERS, ...remainingHeader(true) } });
 }

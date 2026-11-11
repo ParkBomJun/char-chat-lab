@@ -96,3 +96,32 @@ button.link { background: none; color: var(--accent); padding: 0; }
 .conv-list { list-style: none; padding: 0; margin: 8px 0 0; }
 .conv-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .char-card form { margin-top: 12px; }
+.chat-usage { margin: 0; padding: 0 24px; font-size: 0.82rem; color: var(--muted); }
+
+/* 관리자 */
+.page.wide { max-width: 1100px; }
+.admin-nav { display: flex; gap: 16px; }
+.period { display: flex; gap: 12px; align-items: center; }
+.period a.on { font-weight: 700; text-decoration: none; color: var(--fg); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin: 16px 0; }
+.stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.stat-value { font-size: 1.35rem; font-weight: 700; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 8px 0 24px; }
+.admin-table th, .admin-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.admin-table th { color: var(--muted); font-weight: 600; }
+.admin-table tr.row-block td { background: color-mix(in srgb, #d6453d 10%, transparent); }
+.admin-table tr.row-error td { background: color-mix(in srgb, #e0a100 14%, transparent); }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 12px 0; }
+.filters label, .admin-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.88rem; }
+.filters input, .filters select, .admin-form input:not([type=checkbox]), .admin-form textarea {
+  padding: 6px 8px; font: inherit; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--fg);
+}
+.admin-form { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.admin-form textarea { resize: vertical; }
+label.check { flex-direction: row !important; align-items: center; gap: 6px !important; }
+.inline { display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
+.lore-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 12px 0; background: var(--card); max-width: 800px; }
+.lore-card form + form { margin-top: 8px; }
+.ok { color: #2f9e5b; }
+.pager { display: flex; gap: 16px; }
+button.danger { background: #d6453d; }

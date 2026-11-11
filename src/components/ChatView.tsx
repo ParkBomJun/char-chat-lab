@@ -10,14 +10,17 @@ export function ChatView({
   characterName,
   initialMessages,
   initialStopped,
+  initialRemaining,
 }: {
   conversationId: string;
   characterName: string;
   initialMessages: ViewMessage[];
   initialStopped: boolean;
+  initialRemaining: number;
 }) {
   const [messages, setMessages] = useState<ViewMessage[]>(initialMessages);
   const [stopped, setStopped] = useState(initialStopped);
+  const [remaining, setRemaining] = useState(initialRemaining);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +53,8 @@ export function ChatView({
         body: JSON.stringify({ content }),
         signal: ctrl.signal,
       });
+      const hdr = res.headers.get("X-Daily-Remaining");
+      if (hdr !== null && !Number.isNaN(Number(hdr))) setRemaining(Number(hdr));
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error ?? "전송에 실패했어요.");
@@ -114,6 +119,9 @@ export function ChatView({
         <div ref={bottomRef} />
       </div>
       {error && <p className="error chat-error">{error}</p>}
+      <p className="chat-usage">
+        {remaining > 0 ? `오늘 남은 메시지 ${remaining}개` : "오늘 사용할 수 있는 메시지를 모두 사용했어요. 내일 다시 이용해 주세요."}
+      </p>
       {stopped && <p className="chat-error">이 대화는 중단되었어요. 목록에서 새 대화를 시작해 주세요.</p>}
       <form
         className="chat-input"
@@ -135,12 +143,12 @@ export function ChatView({
           maxLength={2000}
           rows={2}
           placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"
-          disabled={sending || stopped}
+          disabled={sending || stopped || remaining <= 0}
         />
         {sending ? (
           <button type="button" onClick={() => abortRef.current?.abort()}>중지</button>
         ) : (
-          <button type="submit" disabled={!input.trim() || stopped}>전송</button>
+          <button type="submit" disabled={!input.trim() || stopped || remaining <= 0}>전송</button>
         )}
       </form>
     </div>
