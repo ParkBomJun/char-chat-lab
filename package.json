@@ -16,7 +16,8 @@
     "db:migrate": "prisma migrate dev",
     "eval": "tsx eval/run.ts all",
     "eval:scenarios": "tsx eval/run.ts scenarios",
-    "eval:redteam": "tsx eval/run.ts redteam"
+    "eval:redteam": "tsx eval/run.ts redteam",
+    "predeploy": "tsx scripts/predeploy.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

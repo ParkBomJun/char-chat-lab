@@ -66,6 +66,7 @@ export default async function Home() {
             </ul>
           </>
         )}
+        <p className="who"><Link href="/privacy">데모 서비스 안내</Link></p>
       </main>
     </>
   );

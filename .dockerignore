@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.gitignore
+# 비밀값은 이미지에 넣지 않는다. 런타임에 환경변수로 주입한다.
+.env
+.env.*
+!.env.example
+# 재생성되는 산출물과 로컬 전용 파일
+src/generated
+eval/results
+*.log
+Dockerfile
+docker-compose*.yml

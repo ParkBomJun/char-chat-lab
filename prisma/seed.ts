@@ -10,6 +10,14 @@ const prisma = new PrismaClient({
 
 const SEED_CHARACTER_ID = "seed-character-1";
 
+/**
+ * SEED_PRESERVE=1(운영 배포): 이미 있는 데이터는 건드리지 않고 없는 것만 만든다.
+ * 그렇지 않으면 배포할 때마다 관리자가 고친 시드 캐릭터·로어북이 초기값으로 되돌아가고 비밀번호도 덮어써진다.
+ * 비밀번호를 일부러 바꾸려면 SEED_RESET_PASSWORDS=1을 함께 준다.
+ */
+const preserve = process.env.SEED_PRESERVE === "1";
+const resetPasswords = !preserve || process.env.SEED_RESET_PASSWORDS === "1";
+
 async function main() {
   const email = (process.env.DEMO_EMAIL ?? "demo@example.com").toLowerCase();
   const password = process.env.DEMO_PASSWORD;
@@ -18,7 +26,7 @@ async function main() {
   const passwordHash = await bcrypt.hash(password, 12);
   await prisma.user.upsert({
     where: { email },
-    update: { passwordHash },
+    update: resetPasswords ? { passwordHash } : {},
     create: { email, passwordHash },
   });
 
@@ -29,7 +37,7 @@ async function main() {
     const adminHash = await bcrypt.hash(adminPassword, 12);
     await prisma.user.upsert({
       where: { email: adminEmail },
-      update: { passwordHash: adminHash, role: "ADMIN" },
+      update: resetPasswords ? { passwordHash: adminHash, role: "ADMIN" } : {},
       create: { email: adminEmail, passwordHash: adminHash, role: "ADMIN" },
     });
   }
@@ -48,7 +56,7 @@ async function main() {
   };
   await prisma.character.upsert({
     where: { id: SEED_CHARACTER_ID },
-    update: data,
+    update: preserve ? {} : data,
     create: { id: SEED_CHARACTER_ID, ...data },
   });
 
@@ -77,10 +85,10 @@ async function main() {
     const v = validateKeywords(l.keywords);
     if (v.errors.length) throw new Error(`로어북 ${l.id} 키워드 오류: ${v.errors.join(" / ")}`);
     const data = { characterId: SEED_CHARACTER_ID, keywords: v.keywords, content: l.content, priority: l.priority, enabled: true };
-    await prisma.lorebookEntry.upsert({ where: { id: l.id }, update: data, create: { id: l.id, ...data } });
+    await prisma.lorebookEntry.upsert({ where: { id: l.id }, update: preserve ? {} : data, create: { id: l.id, ...data } });
   }
 
-  console.log(`seed 완료: 데모 계정 ${email}, 관리자 ${adminEmail && adminPassword ? adminEmail : "(미생성: ADMIN_EMAIL/ADMIN_PASSWORD 없음)"}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
+  console.log(`seed 완료${preserve ? "(보존 모드)" : ""}: 데모 계정 ${email}, 관리자 ${adminEmail && adminPassword ? adminEmail : "(미생성: ADMIN_EMAIL/ADMIN_PASSWORD 없음)"}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
 }
 
 main()

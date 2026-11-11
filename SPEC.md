@@ -232,6 +232,7 @@ model ModerationEvent {
 > - (7단계) 일일 사용량: 오늘(KST 자정 기준) 사용자가 보낸 `Message(role=USER)` 수로 센다. **차단·회수된 입력도 센다**(차단 메시지를 반복해 분류기 비용을 쓰게 하는 공격 방지). 한도 확인은 분류기·모델 호출보다 먼저, 초과 시 HTTP 429. 분류기 실패(503)로 메시지가 저장되지 않은 시도는 세지 않는다. 남은 수는 `X-Daily-Remaining` 응답 헤더와 채팅 화면에 표시. 관리자도 같은 한도를 받는다.
 > - (7단계) 관리자: `/admin`(요약), `/admin/moderation`(판정 로그: 단계·판정·카테고리 필터, 턴 점수 행은 기본 숨김), `/admin/characters`(캐릭터·로어북 편집). 권한은 레이아웃·페이지·**모든 서버 액션**이 각각 DB의 현재 역할을 확인하고, 관리자가 아니면 404. 캐시 적중률은 제공사 usage가 있는 대화 행만으로 계산(추정 행 제외). 캐릭터 삭제는 대화 이력 보존을 위해 지원하지 않고 비공개로 전환한다. 관리자 계정은 seed가 `ADMIN_EMAIL`/`ADMIN_PASSWORD`로 생성.
 > - (8단계) 평가: `eval/` — 실행 방법·파일 형식·지표 정의는 `eval/README.md`. 서비스 라우트의 파이프라인을 DB 없이 같은 순수 함수·어댑터로 재현하는 엔진(`eval/lib/engine.ts`)이라 라우트 변경 시 같이 고쳐야 한다. 시나리오는 요약 없음(전체 원문) 대 서비스 설정을 비교하고, 레드팀은 케이스 단위(차단·위기·통과 기대)로 차단율·오탐률(Wilson 95% 구간)·최초 개입 단계 분포를 낸다. 실제 API 호출은 `--yes` 없이는 시작하지 않고, mock 결과는 `*-mock.*`로 저장·커밋 제외.
+> - (9단계) 배포 준비: `RateLimitEvent`(scope·key·createdAt) 추가 — 로그인 실패(이메일+IP 15분 5회, IP 15분 20회)와 가입(IP 1시간 10회) 제한. IP는 X-Forwarded-For의 오른쪽에서 `TRUST_PROXY_HOPS`번째(맨 앞 값은 위조 가능). `/api/health`, `/privacy`, 보안 헤더, `output: "standalone"`, `Dockerfile`(runner/migrate 타깃)·`docker-compose.prod.yml`(프로젝트명 분리), `npm run predeploy`, 운영 seed 보존 모드(`SEED_PRESERVE=1`). 절차는 `docs/DEPLOY.md`. 실제 공개 URL 게시는 호스팅 대상 미정으로 보류.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

@@ -1,0 +1,51 @@
+# 운영(또는 운영과 같은 구성의 로컬 검증)용. 개발용 DB만 띄우는 docker-compose.yml과 별개다.
+#   cp .env.example .env.production   # 값 채우기(비밀번호·키 교체)
+#   npm run predeploy -- --env-file .env.production
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+# 개발용 docker-compose.yml과 같은 디렉터리에 있으므로 프로젝트 이름을 분리한다.
+# 같은 이름이면 두 파일의 `db` 서비스가 서로를 덮어써 개발 DB 컨테이너가 교체될 수 있다.
+name: char-chat-lab-prod
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatlab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD를 .env.production에 설정하세요}
+      POSTGRES_DB: chatlab
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatlab -d chatlab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 호스트에 포트를 열지 않는다(앱 컨테이너만 내부 네트워크로 접근)
+
+  migrate:
+    build: { context: ., target: migrate }
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://chatlab:${POSTGRES_PASSWORD}@db:5432/chatlab
+      # 이미 있는 캐릭터·로어북·비밀번호를 덮어쓰지 않고 없는 것만 만든다
+      SEED_PRESERVE: "1"
+    restart: "no"
+
+  app:
+    build: { context: ., target: runner }
+    restart: unless-stopped
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://chatlab:${POSTGRES_PASSWORD}@db:5432/chatlab
+      AUTH_TRUST_HOST: "true"
+    ports:
+      # 앞단 프록시/로드밸런서가 TLS를 종료하고 X-Forwarded-For를 붙여야 한다(로그인 제한이 IP에 의존)
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  pgdata_prod:

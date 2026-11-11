@@ -1,11 +1,13 @@
 "use server";
 
 import { AuthError } from "next-auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { signIn, signOut } from "@/auth";
+import { requestIp, signupThrottled } from "@/lib/rate-limit-db";
 
 export type FormState = { error?: string; email?: string } | undefined;
 
@@ -23,7 +25,12 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
       redirectTo: "/",
     });
   } catch (e) {
-    if (e instanceof AuthError) return { error: "이메일 또는 비밀번호가 올바르지 않습니다.", email };
+    if (e instanceof AuthError) {
+      if ((e as { code?: string }).code === "too_many_attempts") {
+        return { error: "로그인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.", email };
+      }
+      return { error: "이메일 또는 비밀번호가 올바르지 않습니다.", email };
+    }
     throw e; // signIn 성공 시의 redirect 포함
   }
 }
@@ -37,6 +44,9 @@ export async function signupAction(_prev: FormState, formData: FormData): Promis
   if (!parsed.success) return { error: parsed.error.issues[0].message, email: rawEmail };
 
   const { email, password } = parsed.data;
+  if (await signupThrottled(requestIp(await headers()))) {
+    return { error: "가입 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", email };
+  }
   const exists = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (exists) return { error: "이미 가입된 이메일입니다.", email };
 

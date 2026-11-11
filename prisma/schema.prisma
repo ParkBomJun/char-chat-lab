@@ -164,3 +164,13 @@ model ModerationEvent {
   @@index([conversationId, createdAt])
   @@index([stage, verdict])
 }
+
+/// 로그인 실패·가입 시도 제한용 기록. 서버가 여러 대여도 공유되도록 DB에 둔다(메모리 카운터는 인스턴스마다 따로라 우회된다).
+model RateLimitEvent {
+  id        String   @id @default(cuid())
+  scope     String // "login_fail" | "signup"
+  key       String // 이메일|IP 조합 또는 IP
+  createdAt DateTime @default(now())
+
+  @@index([scope, key, createdAt])
+}

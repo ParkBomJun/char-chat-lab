@@ -30,6 +30,9 @@ export function AuthForm({ title, submitLabel, action, alt, passwordAutoComplete
         <button type="submit" disabled={pending}>{pending ? "처리 중…" : submitLabel}</button>
       </form>
       <p><Link href={alt.href}>{alt.label}</Link></p>
+      <p className="who">
+        AI와의 대화입니다. 민감한 개인정보는 입력하지 마세요. <Link href="/privacy">데모 서비스 안내</Link>
+      </p>
     </main>
   );
 }
