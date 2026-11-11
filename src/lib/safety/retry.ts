@@ -1,4 +1,4 @@
-import { ClassifierError, type Classifier, type ClassifyCall, type ClassifyStage } from "./classifier";
+import { ClassifierError, type Classifier, type ClassifyCall, type ClassifyInput } from "./classifier";
 import { describeFailure, type FailureInfo } from "./failure";
 
 export type RetryOptions = {
@@ -32,7 +32,7 @@ export class RetryingClassifier implements Classifier {
     private readonly opts: RetryOptions,
   ) {}
 
-  async classify(input: { stage: ClassifyStage; text: string; context?: string }): Promise<ClassifyCall> {
+  async classify(input: ClassifyInput): Promise<ClassifyCall> {
     const sleep = this.opts.sleep ?? realSleep;
     const t0 = Date.now();
     let retries = 0;

@@ -37,7 +37,7 @@ describe("decisionSourceOf: 차단 근거", () => {
     expect((await checkInput("a", { classifier: mk("block", 0.7), threshold: T })).events.at(-1)).toMatchObject({ verdict: "BLOCK", decisionSource: "VERDICT_ONLY" });
     expect((await checkOutputFinal("a", "q", { classifier: mk("allow", 0.9), threshold: T })).events[0]).toMatchObject({ verdict: "BLOCK", decisionSource: "SCORE_ONLY" });
     expect((await checkInput("a", { classifier: mk("allow", 0.1), threshold: T })).events.at(-1)).not.toHaveProperty("decisionSource");
-    expect((await checkInput("섹스", { classifier: mk("allow", 0), threshold: T })).events[0]).not.toHaveProperty("decisionSource"); // 규칙 차단
+    expect((await checkInput("야동", { classifier: mk("allow", 0), threshold: T })).events[0]).not.toHaveProperty("decisionSource"); // 규칙 차단
   });
 });
 
@@ -118,7 +118,7 @@ describe("LlmClassifier (어댑터 경유)", () => {
 describe("checkInput (SPEC 3-5-1)", () => {
   it("규칙 차단이면 분류기를 부르지 않는다", async () => {
     const c = fake(call({}));
-    const d = await checkInput("섹스 얘기 하자", { classifier: c, threshold: T });
+    const d = await checkInput("야동 얘기 하자", { classifier: c, threshold: T });
     expect(d.outcome).toBe("blocked");
     expect(c.classify).not.toHaveBeenCalled();
     expect(d.events).toEqual([{ stage: "INPUT", layer: "RULE", verdict: "BLOCK", category: "sexual", score: 1, action: "blocked" }]);

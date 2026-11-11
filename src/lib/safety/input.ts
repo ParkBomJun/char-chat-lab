@@ -1,4 +1,4 @@
-import { checkRules, type CompiledRule, defaultRules } from "./rules";
+import { evaluateRules, hintCategory, type CompiledRule, defaultRules, type SoftHit } from "./rules";
 import { decisionSourceOf, failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
@@ -24,9 +24,19 @@ export type InputDeps = { classifier: Classifier; threshold: number; rules?: rea
 
 const ev = (e: Omit<ModEvent, "stage">): ModEvent => ({ stage: "INPUT", ...e });
 
-/** 입력 검사 (SPEC 3-5-1): 규칙 층 → 분류기 층. 차단·위기면 분류기는 부르지 않는다(비용 절약). */
+/** SOFT 규칙 적중 기록: 차단이 아니므로 verdict=ALLOW, 점수 없음. 흐름 감시 점수·위반 횟수에 들어가지 않는다. */
+export const softEvents = (stage: ModEvent["stage"], soft: readonly SoftHit[]): ModEvent[] =>
+  soft.map((s) => ({ stage, layer: "RULE", verdict: "ALLOW", category: s.category, score: null, action: s.normalizedOnly ? "soft_hint_normalized" : "soft_hint" }));
+
+/**
+ * 입력 검사 (SPEC 3-5-1): 규칙 층 → 분류기 층. HARD 규칙이 차단·위기면 분류기는 부르지 않는다(비용 절약).
+ * SOFT 규칙 적중은 차단하지 않고 기록한 뒤 분류기에 힌트로 넘긴다. 이번 턴 점수(turnScore)는 분류기 판정으로만 정해진다.
+ */
 export async function checkInput(text: string, deps: InputDeps): Promise<InputDecision> {
-  const rule = checkRules(text, "input", deps.rules ?? defaultRules);
+  const evaluated = evaluateRules(text, "input", deps.rules ?? defaultRules);
+  const rule = evaluated.hard ?? { kind: "none" as const };
+  const soft = softEvents("INPUT", evaluated.soft);
+  const hints = evaluated.soft.map(hintCategory);
 
   if (rule.kind === "crisis") {
     return {
@@ -49,12 +59,12 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
 
   let call: ClassifyCall;
   try {
-    call = await deps.classifier.classify({ stage: "INPUT", text });
+    call = await deps.classifier.classify({ stage: "INPUT", text, ...(hints.length ? { hints } : {}) });
   } catch (e) {
     console.error("[safety] 입력 분류기 실패 → 차단(fail closed):", e instanceof Error ? e.message : e);
     return {
       outcome: "error",
-      events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "blocked", ...failureOf(e) })],
+      events: [ruleEvent, ...soft, ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "blocked", ...failureOf(e) })],
       turnScore: 0,
       calls: [],
     };
@@ -67,6 +77,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
       outcome: crisis ? "crisis" : "blocked",
       events: [
         ruleEvent,
+        ...soft,
         ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, decisionSource: decisionSourceOf(v, deps.threshold), action: crisis ? "crisis_notice" : "blocked", ...retryOf(call) }),
       ],
       turnScore: crisis ? 0 : Math.max(v.score, deps.threshold),
@@ -75,7 +86,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
   }
   return {
     outcome: "allow",
-    events: [ruleEvent, ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
+    events: [ruleEvent, ...soft, ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
     turnScore: v.score,
     calls: [call],
   };

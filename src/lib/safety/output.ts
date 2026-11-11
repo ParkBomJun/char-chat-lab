@@ -1,4 +1,5 @@
-import { checkRules, type CompiledRule, defaultRules } from "./rules";
+import { checkRules, evaluateRules, hintCategory, type CompiledRule, defaultRules } from "./rules";
+import { softEvents } from "./input";
 import { decisionSourceOf, failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
@@ -34,23 +35,27 @@ export type OutputDecision = {
   calls: ClassifyCall[];
 };
 
-export type OutputDeps = { classifier: Classifier; threshold: number };
+export type OutputDeps = { classifier: Classifier; threshold: number; rules?: readonly CompiledRule[] };
 
 const ev = (e: Omit<ModEvent, "stage">): ModEvent => ({ stage: "OUTPUT_FINAL", ...e });
 
 /**
  * 생성 완료 후 출력 검사 (분류기 층). 차단이면 호출 측이 이미 보낸 메시지를 회수한다.
  * 분류기 실패는 통과가 아니라 차단(fail closed): 검사하지 못한 응답은 보여 주지 않는다.
+ * 출력의 SOFT 규칙 적중은 스트리밍을 끊지 않고 여기서 기록해 분류기에 힌트로 넘긴다(점수·회수 여부는 분류기 판정으로만 정해진다).
  */
 export async function checkOutputFinal(text: string, userInput: string, deps: OutputDeps): Promise<OutputDecision> {
+  const softHits = evaluateRules(text, "output", deps.rules ?? defaultRules).soft;
+  const soft = softEvents("OUTPUT_STREAM", softHits);
+  const hints = softHits.map(hintCategory);
   let call: ClassifyCall;
   try {
-    call = await deps.classifier.classify({ stage: "OUTPUT_FINAL", text, context: userInput });
+    call = await deps.classifier.classify({ stage: "OUTPUT_FINAL", text, context: userInput, ...(hints.length ? { hints } : {}) });
   } catch (e) {
     console.error("[safety] 출력 분류기 실패 → 회수(fail closed):", e instanceof Error ? e.message : e);
     return {
       outcome: "error",
-      events: [ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "retracted", ...failureOf(e) })],
+      events: [...soft, ev({ layer: "CLASSIFIER", verdict: "ERROR", category: null, score: null, action: "retracted", ...failureOf(e) })],
       turnScore: 0,
       calls: [],
     };
@@ -59,14 +64,14 @@ export async function checkOutputFinal(text: string, userInput: string, deps: Ou
   if (isBlocked(v, deps.threshold)) {
     return {
       outcome: "blocked",
-      events: [ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, decisionSource: decisionSourceOf(v, deps.threshold), action: "retracted", ...retryOf(call) })],
+      events: [...soft, ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, decisionSource: decisionSourceOf(v, deps.threshold), action: "retracted", ...retryOf(call) })],
       turnScore: Math.max(v.score, deps.threshold),
       calls: [call],
     };
   }
   return {
     outcome: "allow",
-    events: [ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
+    events: [...soft, ev({ layer: "CLASSIFIER", verdict: "ALLOW", category: v.category, score: v.score, action: "none", ...retryOf(call) })],
     turnScore: v.score,
     calls: [call],
   };

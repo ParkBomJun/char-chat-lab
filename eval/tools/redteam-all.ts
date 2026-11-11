@@ -30,7 +30,7 @@ import { DEFAULT_PER_CASE, DEFAULT_SEED, mutateSet } from "../lib/mutate";
 import { redteamApprovalError } from "../lib/policy";
 import { evalRuleSets, renderRulesReport, summarizeRules, type RuleEvaluator } from "../lib/rules-eval";
 import { qualitySection, rateText, type RedteamReport } from "../lib/report";
-import { checkRules } from "@/lib/safety/rules";
+import { evaluateRules } from "@/lib/safety/rules";
 import { TOKEN_SCALE, estimatePlan } from "../lib/plan";
 import type { RedteamSet } from "../lib/schema";
 
@@ -67,11 +67,8 @@ type RunJson = { redteam: { set: RedteamSet; cases: CaseResult[] }[] };
 type ResponsesJson = { run: RunInfo; cases: CaseTranscript[] };
 const readJson = <T,>(f: string) => JSON.parse(readFileSync(f, "utf8")) as T;
 
-/** 지금 서비스가 쓰는 입력 규칙(한 단계: 걸리면 바로 차단·위기 안내) */
-const currentRules: RuleEvaluator = (text) => {
-  const r = checkRules(text, "input");
-  return { hard: r.kind === "none" ? null : { kind: r.kind, category: r.category }, soft: [] };
-};
+/** 지금 서비스가 쓰는 입력 규칙(HARD는 바로 차단·위기 안내, SOFT는 분류기 힌트) */
+const currentRules: RuleEvaluator = (text) => evaluateRules(text, "input");
 
 function gitInfo(): string {
   try {

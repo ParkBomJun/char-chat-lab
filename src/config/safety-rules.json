@@ -1,43 +1,91 @@
 {
-  "_note": "규칙 층(키워드·정규식) 초안. 빠르고 싼 1차 필터일 뿐이며 서비스의 안전 기준이므로 반드시 검토·보강할 것. words는 글자 그대로 포함 여부, spaced=true면 3글자 이상 단어에 한해 글자 사이 공백도 허용(\"죽고 싶다\" 같은 띄어쓰기 대응. 2글자 단어는 오탐 때문에 제외). regex는 직접 작성한 정규식(u 플래그, 대소문자 무시). appliesTo의 output 규칙은 캐릭터가 거절·위로하며 쓸 수 있는 단어를 넣으면 오탐이 나므로 명백한 것만 둔다. kind: block=차단, crisis=롤플레이 중단 후 도움 안내(입력에만 적용).",
+  "_note": "규칙 층(키워드·정규식). 두 단계다. tier=hard: 걸리면 바로 차단(kind=block)하거나 위기 안내(kind=crisis). tier=soft: 차단하지 않고 분류기에 '규칙 힌트: <범주>'만 넘긴다(ModerationEvent에는 verdict=ALLOW, action=soft_hint로 기록). 원문에서 안 걸리고 정규화(공백·특수문자 제거, 자모 결합, 숫자·영문 치환 복원, 3번 이상 반복 글자 접기)를 거쳐야만 걸린 것은 hard 항목이어도 항상 soft로 처리한다. words는 글자 그대로 포함 여부, spaced=true면 3글자 이상 단어에 한해 글자 사이 공백도 허용. regex는 직접 작성한 정규식(u 플래그, 대소문자 무시). 초성 표기(ㅈㅅ 등)는 규칙에 넣지 않는다(일상 초성과 겹쳐 분류기가 맡는다, docs/SAFETY.md). hard에는 명백한 것만 둔다: 본인의 위기 표현, 명시적 요구. 맥락에 따라 정상일 수 있는 단어는 soft.",
   "rules": [
     {
       "category": "crisis",
       "kind": "crisis",
+      "tier": "hard",
+      "appliesTo": ["input"],
+      "regex": [
+        "죽\\s*고\\s*싶(?!\\s*을\\s*(만큼|정도))",
+        "죽어\\s*버리고\\s*싶",
+        "살기\\s*싫",
+        "뛰어\\s*내리고\\s*싶",
+        "(자살|자해)\\s*(하고\\s*싶|할래|하려고|할까)",
+        "목숨을?\\s*끊(고\\s*싶|을래|으려)",
+        "손목을?\\s*긋(고\\s*싶|을래|었어)"
+      ]
+    },
+    {
+      "category": "crisis",
+      "kind": "crisis",
+      "tier": "soft",
       "appliesTo": ["input"],
       "spaced": true,
-      "words": ["자살", "자해", "죽고싶", "죽어버리고싶", "목숨을끊", "스스로목숨", "살기싫", "사라지고싶", "죽을래", "뛰어내리고싶", "손목을긋", "유서를"]
+      "words": ["자살", "자해", "스스로목숨", "사라지고싶", "죽을래"],
+      "regex": ["죽\\s*고\\s*싶\\s*을\\s*(만큼|정도)", "목숨을?\\s*끊", "(?<![가-힣])유서"]
     },
     {
       "category": "sexual",
       "kind": "block",
+      "tier": "hard",
       "appliesTo": ["input", "output"],
-      "words": ["섹스", "성관계", "포르노", "야동", "자위", "강간", "오럴", "19금"]
+      "words": ["포르노", "야동"]
     },
     {
       "category": "sexual",
       "kind": "block",
+      "tier": "hard",
       "appliesTo": ["input"],
-      "words": ["야한이야기", "야한장면", "음란", "애무", "알몸"]
+      "spaced": true,
+      "words": ["야한이야기", "야한장면", "애무"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["input", "output"],
+      "words": ["섹스", "성관계", "강간", "오럴", "19금"],
+      "regex": ["자위(?!대|권)"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["input"],
+      "words": ["음란", "알몸"]
     },
     {
       "category": "violence",
       "kind": "block",
+      "tier": "hard",
       "appliesTo": ["input", "output"],
-      "regex": ["(사람|누구).{0,6}(죽이|살해).{0,6}(방법|법)", "폭탄.{0,8}(만드|제조)", "(토막|시체).{0,4}(내|훼손|유기)"]
+      "regex": ["(사람|누구).{0,6}(죽이|살해).{0,6}(방법|법)", "폭탄.{0,8}(만드|제조)"]
+    },
+    {
+      "category": "violence",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["input", "output"],
+      "regex": ["시체.{0,4}(훼손|유기)", "토막\\s*살인"]
     },
     {
       "category": "jailbreak",
       "kind": "block",
+      "tier": "hard",
       "appliesTo": ["input"],
       "regex": [
         "이전\\s*(의\\s*)?(모든\\s*)?(지시|명령|지침).{0,6}(무시|잊)",
         "시스템\\s*프롬프트.{0,8}(보여|알려|출력|공개)",
-        "개발자\\s*모드",
-        "탈옥",
-        "ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions",
-        "\\bDAN\\b"
+        "ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions"
       ]
+    },
+    {
+      "category": "jailbreak",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["input"],
+      "regex": ["개발자\\s*모드", "탈옥", "\\bdan\\s*(mode|모드)", "do\\s+anything\\s+now"]
     }
   ]
 }

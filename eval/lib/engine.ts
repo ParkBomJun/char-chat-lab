@@ -119,7 +119,7 @@ export function classifierScoresOf(events: readonly ModEvent[]): number[] {
 export function interventionsFromEvents(events: readonly ModEvent[]): Intervention[] {
   const out: Intervention[] = [];
   for (const e of events) {
-    if (e.action === "none") continue;
+    if (e.action === "none" || e.action === "soft_hint" || e.action === "soft_hint_normalized") continue; // SOFT 힌트는 개입이 아니다
     const stage: InterventionStage =
       e.stage === "INPUT" ? (e.layer === "RULE" ? "INPUT_RULE" : "INPUT_CLASSIFIER") : e.stage === "OUTPUT_STREAM" ? "OUTPUT_STREAM" : e.stage === "OUTPUT_FINAL" ? "OUTPUT_FINAL" : "FLOW";
     const kind: InterventionKind =

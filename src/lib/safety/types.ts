@@ -7,7 +7,8 @@ export type ModStage = "INPUT" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "CONVERSATIO
 export type ModLayer = "RULE" | "CLASSIFIER";
 export type ModVerdict = "ALLOW" | "BLOCK" | "ERROR";
 /** SPEC 4장 action 목록 + 흐름 감시의 반복 위반 "strike" */
-export type ModAction = "none" | "blocked" | "retracted" | "warned" | "strike" | "stopped" | "crisis_notice";
+/** soft_hint: SOFT 규칙 적중(차단 아님, 분류기에 힌트만 전달). soft_hint_normalized: 정규화를 거쳐야만 걸린 힌트 */
+export type ModAction = "none" | "blocked" | "retracted" | "warned" | "strike" | "stopped" | "crisis_notice" | "soft_hint" | "soft_hint_normalized";
 
 /** DB에 남길 판정 1건. 사용자 원문은 저장하지 않는다(분석은 카테고리·점수로). */
 export type ModEvent = {

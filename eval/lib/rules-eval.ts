@@ -62,7 +62,8 @@ export function evalRuleCase(set: string, c: RedteamCase, evaluate: RuleEvaluato
 
 export type RuleGroup = {
   key: string;
-  attack: { n: number; hard: Rate; matched: Rate; softOnly: Rate; missed: Rate };
+  /** softNormalized: SOFT만 걸린 것 중 정규화를 거쳐야만 걸린 케이스 수 */
+  attack: { n: number; hard: Rate; matched: Rate; softOnly: Rate; softNormalized: number; missed: Rate };
   benign: { n: number; falsePositive: Rate; softOnly: Rate };
 };
 
@@ -76,6 +77,7 @@ function group(key: string, rows: readonly RuleCaseResult[]): RuleGroup {
       hard: rate(a.filter((r) => r.hard).length, a.length),
       matched: rate(a.filter((r) => r.matched).length, a.length),
       softOnly: rate(a.filter((r) => r.softOnly).length, a.length),
+      softNormalized: a.filter((r) => r.softOnly && r.softNormalized).length,
       missed: rate(a.filter((r) => !r.hard && !r.softOnly).length, a.length),
     },
     benign: { n: b.length, falsePositive: rate(b.filter((r) => r.hard).length, b.length), softOnly: rate(b.filter((r) => r.softOnly).length, b.length) },
@@ -113,8 +115,8 @@ export function evalRuleSets(sets: readonly RedteamSet[], evaluate: RuleEvaluato
 
 const pct = (r: Rate) => (r.value === null ? "—" : `${(r.value * 100).toFixed(1)}% (${r.k}/${r.n})`);
 const table = (head: string[], rows: string[][]) => [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
-const HEAD = ["구분", "공격", "HARD 적중", "기대 종류 일치", "SOFT만(힌트)", "놓침", "정상", "오탐(HARD)", "정상 SOFT만"];
-const row = (g: RuleGroup) => [g.key, String(g.attack.n), pct(g.attack.hard), pct(g.attack.matched), pct(g.attack.softOnly), pct(g.attack.missed), String(g.benign.n), pct(g.benign.falsePositive), pct(g.benign.softOnly)];
+const HEAD = ["구분", "공격", "HARD 적중", "기대 종류 일치", "SOFT만(힌트)", "그중 정규화로만", "놓침", "정상", "오탐(HARD)", "정상 SOFT만"];
+const row = (g: RuleGroup) => [g.key, String(g.attack.n), pct(g.attack.hard), pct(g.attack.matched), pct(g.attack.softOnly), String(g.attack.softNormalized ?? 0), pct(g.attack.missed), String(g.benign.n), pct(g.benign.falsePositive), pct(g.benign.softOnly)];
 
 export type RulesMeta = { runId: string; generatedKst: string; source: string; rulesHash: string; commit: string; mutate: { enabled: boolean; seed: string; perCase: number; variants: number } };
 

@@ -79,7 +79,7 @@ describe("summarizeRules", () => {
   });
   it("리포트에는 집계와 케이스 id만 있고 대화 원문은 없다", () => {
     const md = renderRulesReport(rep, { runId: "r", generatedKst: "t", source: "t.csv", rulesHash: "abc", commit: "c", mutate: { enabled: true, seed: "s", perCase: 4, variants: 1 } });
-    expect(md).toContain("| 전체 | 6 | 50.0% (3/6) | 33.3% (2/6) | 33.3% (2/6) | 16.7% (1/6) | 3 | 33.3% (1/3) | 33.3% (1/3) |");
+    expect(md).toContain("| 전체 | 6 | 50.0% (3/6) | 33.3% (2/6) | 33.3% (2/6) | 1 | 16.7% (1/6) | 3 | 33.3% (1/3) | 33.3% (1/3) |");
     expect(md).toContain("| b2 | daily | block/x |");
     expect(md).not.toContain("오탐 ]");
     for (const c of set.cases) for (const t of c.turns) expect(md).not.toContain(t);
