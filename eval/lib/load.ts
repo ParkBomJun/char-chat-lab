@@ -48,9 +48,10 @@ export type LoadedSet = { set: RedteamSet; isPrivate: boolean };
  * 레드팀 세트. file을 주면 그 파일만, 없으면 eval/redteam/의 공개 세트(예시 example.json 제외).
  * includePrivate면 eval/redteam/private/*.json(실제 세트, gitignore)도 함께 읽는다. private 안의 파일은 isPrivate로 표시된다.
  */
-export function loadRedteamSetsTagged(file?: string, includePrivate = false): LoadedSet[] {
-  const files = file
-    ? [path.resolve(file)]
+export function loadRedteamSetsTagged(file?: string | readonly string[], includePrivate = false): LoadedSet[] {
+  const given = file === undefined ? [] : typeof file === "string" ? [file] : [...file];
+  const files = given.length
+    ? given.map((f) => path.resolve(f))
     : [
         ...jsonFiles(path.join(EVAL_DIR, "redteam")).filter((f) => path.basename(f) !== "example.json"),
         ...(includePrivate && existsSync(PRIVATE_DIR) ? jsonFiles(PRIVATE_DIR) : []),

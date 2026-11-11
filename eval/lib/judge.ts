@@ -48,6 +48,9 @@ export type CaseTranscript = {
   summaries?: CaseSummary[];
   /** 케이스별로 덮어쓴 요약 설정(없으면 서비스 설정) */
   summaryConfig?: { summaryEvery?: number; recentTurns?: number };
+  /** 변형 케이스만: 원본 id와 변형 기법 */
+  mutationOf?: string;
+  mutation?: string;
 };
 export type CaseSummary = { version: number; content: string; /** 이 요약이 덮는 메시지 수(대화 앞에서부터) */ coversMessages: number };
 
@@ -55,7 +58,7 @@ const ivText = (i: Intervention) => `${i.stage}/${i.kind}`;
 
 export function buildTranscript(
   set: string,
-  c: Pick<RedteamCase, "id" | "label" | "category" | "technique" | "expect" | "expectAt" | "turns"> & { summaryEvery?: number; recentTurns?: number },
+  c: Pick<RedteamCase, "id" | "label" | "category" | "technique" | "expect" | "expectAt" | "turns"> & { summaryEvery?: number; recentTurns?: number; mutationOf?: string; mutation?: string },
   results: readonly TurnResult[],
   summaries: readonly CaseSummary[] = [],
 ): CaseTranscript {
@@ -72,6 +75,7 @@ export function buildTranscript(
       const raw = r.rawReply ?? null;
       return { n: i + 1, user, delivered: r.reply, withheld: raw && r.reply === null ? raw : null, interventions: r.interventions.filter((x) => x.kind !== "check_failed").map(ivText), skipped: r.skipped };
     }),
+    ...(c.mutationOf ? { mutationOf: c.mutationOf, mutation: c.mutation ?? "" } : {}),
     ...(summaries.length ? { summaries: [...summaries] } : {}),
     ...(c.summaryEvery || c.recentTurns ? { summaryConfig: { ...(c.summaryEvery ? { summaryEvery: c.summaryEvery } : {}), ...(c.recentTurns ? { recentTurns: c.recentTurns } : {}) } } : {}),
   };
@@ -308,7 +312,7 @@ export function summarizeHarm(rows: readonly JudgeRow[]): HarmReport {
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
 const table = (head: string[], rows: string[][]) => [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
 
-const groupRow = (g: HarmGroup) => [
+export const harmGroupRow = (g: HarmGroup) => [
   g.key,
   String(g.n),
   g.harmRate.value === null ? "— (판정 없음)" : `${pct(g.harmRate.value)} (${g.harmRate.k}/${g.harmRate.n}, 95% 신뢰구간 ${pct(g.harmRate.ci!.lo)}–${pct(g.harmRate.ci!.hi)})`,
@@ -319,7 +323,7 @@ const groupRow = (g: HarmGroup) => [
   String(g.unjudged),
   g.unjudged ? pct(g.harmUpperBound) : "—",
 ];
-const HEAD = ["구분", "공격 케이스", "유해 응답 도달률", "유해 도달", "거절·전환", "해당 없음", "미도달(자동)", "미판정", "상한(미판정 전부 유해 가정)"];
+export const HARM_HEAD = ["구분", "공격 케이스", "유해 응답 도달률", "유해 도달", "거절·전환", "해당 없음", "미도달(자동)", "미판정", "상한(미판정 전부 유해 가정)"];
 
 export function renderHarmReport(rep: HarmReport, meta: { sources: string[]; generatedKst: string }): string {
   const out = [
@@ -338,9 +342,9 @@ export function renderHarmReport(rep: HarmReport, meta: { sources: string[]; gen
   if (rep.modes.some((m) => m.adapters.includes("mock"))) out.push("", "> ⚠️ **mock 어댑터 실행분이 포함되어 있습니다.** mock 응답은 의미가 없으므로 이 수치는 동작 확인용입니다.");
   if (rep.modes.length === 0) out.push("", "판정 행이 없습니다.");
 
-  out.push("", "## 앱 안전 켬/끔별 유해 응답 도달률", "", table(["앱 안전", ...HEAD], rep.modes.map((m) => [m.mode, ...groupRow({ ...m.total, key: "전체" })])));
+  out.push("", "## 앱 안전 켬/끔별 유해 응답 도달률", "", table(["앱 안전", ...HARM_HEAD], rep.modes.map((m) => [m.mode, ...harmGroupRow({ ...m.total, key: "전체" })])));
   for (const m of rep.modes) {
-    out.push("", `## 앱 안전 ${m.mode}`, "", `실행: ${m.runs.join(", ")} · 어댑터: ${m.adapters.join(", ")}`, "", "**범주별**", "", table(HEAD, m.byCategory.map(groupRow)), "", "**기법별**", "", table(HEAD, m.byTechnique.map(groupRow)));
+    out.push("", `## 앱 안전 ${m.mode}`, "", `실행: ${m.runs.join(", ")} · 어댑터: ${m.adapters.join(", ")}`, "", "**범주별**", "", table(HARM_HEAD, m.byCategory.map(harmGroupRow)), "", "**기법별**", "", table(HARM_HEAD, m.byTechnique.map(harmGroupRow)));
   }
   if (rep.paired) {
     const p = rep.paired;

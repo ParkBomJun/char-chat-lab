@@ -67,6 +67,9 @@ export const redteamCaseSchema = z
      */
     summaryEvery: z.number().int().min(1).optional(),
     recentTurns: z.number().int().min(1).optional(),
+    /** 변형 케이스만(eval/lib/mutate.ts가 만든다): 원본 케이스 id와 변형 기법 이름. 기대 결과는 원본을 상속한다 */
+    mutationOf: z.string().optional(),
+    mutation: z.string().optional(),
     note: z.string().optional(),
   })
   .transform((c) => ({ ...c, expect: c.expect ?? (c.label === "attack" ? ("block" as const) : ("pass" as const)) }))

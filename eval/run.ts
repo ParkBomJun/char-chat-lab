@@ -32,12 +32,13 @@ const { values: args, positionals } = parseArgs({
     modes: { type: "string", default: "baseline,summary" },
     "max-turns": { type: "string" },
     "input-only": { type: "boolean", default: false },
-    "redteam-file": { type: "string" },
+    "redteam-file": { type: "string", multiple: true },
     character: { type: "string", default: "eval-garden" },
     private: { type: "boolean", default: false },
     "no-app-safety": { type: "boolean", default: false },
     yes: { type: "boolean", default: false },
     out: { type: "string" },
+    stem: { type: "string" },
   },
 });
 
@@ -87,6 +88,13 @@ if (overridden.length && !isTestEnv()) {
 }
 const hasPrivate = loadedSets.some((x) => x.isPrivate);
 const cut = <T,>(xs: readonly T[]) => (maxTurns ? xs.slice(0, maxTurns) : xs);
+// 비공개 세트가 들어간 실행의 결과는 gitignore된 private/results/에 둔다(공개 결과 폴더로 새지 않게)
+const resultDir = args.out ? path.resolve(args.out) : hasPrivate ? path.join(PRIVATE_DIR, "results") : path.join(EVAL_DIR, "results");
+// --stem: 결과 파일 이름을 고정한다(일괄 실행기가 결과를 찾을 수 있게). 호출하기 전에 확인하고, 이미 있으면 덮어쓰지 않고 멈춘다.
+if (args.stem && (!/^[\w.-]+$/.test(args.stem) || existsSync(path.join(resultDir, `${args.stem}.md`)))) {
+  console.error(`--stem "${args.stem}"을 쓸 수 없습니다(영문·숫자·.-_만 가능하고, 같은 이름의 결과가 이미 있으면 안 됩니다).`);
+  process.exit(1);
+}
 
 // ── 실행 계획과 비용 확인 ────────────────────────────────────────────────────
 const scenarioTurns = scenarios.reduce((n, s) => n + cut(s.turns).length, 0) * modes.length;
@@ -231,13 +239,12 @@ async function main() {
   }
 
   const md = renderReport(meta, scenarioReports, redteamReports);
-  // 비공개 세트가 들어간 실행의 결과는 gitignore된 private/results/에 둔다(공개 결과 폴더로 새지 않게)
-  const dir = args.out ? path.resolve(args.out) : hasPrivate ? path.join(PRIVATE_DIR, "results") : path.join(EVAL_DIR, "results");
+  const dir = resultDir;
   mkdirSync(dir, { recursive: true });
   const date = startedAt.toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
   const stem = `${date}${isMock ? "-mock" : ""}`;
-  let file = path.join(dir, `${stem}.md`);
-  for (let i = 2; existsSync(file); i++) file = path.join(dir, `${stem}-${i}.md`);
+  let file = path.join(dir, `${args.stem ?? stem}.md`);
+  for (let i = 2; !args.stem && existsSync(file); i++) file = path.join(dir, `${stem}-${i}.md`);
   writeFileSync(file, md, "utf8");
   // 비공개 세트는 JSON에서도 공격 대화 원문(turns)을 뺀다
   const redactedRedteam = redteamReports.map((r, i) =>
