@@ -51,7 +51,8 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   // 소유권 확인: 남의 대화는 존재 자체를 숨긴다(404).
   const conv = await prisma.conversation.findFirst({
     where: { id: conversationId, userId },
-    include: { character: true },
+    // 조립기가 쓰는 필드만 읽는다. 캐릭터 전체(include)를 읽으면 이후 코드가 응답에 객체를 그대로 실을 때 비공개 필드가 새기 쉽다.
+    select: { status: true, characterId: true, character: { select: { name: true, persona: true, speechStyle: true, exampleDialog: true } } },
   });
   if (!conv) return json(404, "대화를 찾을 수 없습니다.");
   if (conv.status === "STOPPED") return json(409, "중단된 대화입니다.");
