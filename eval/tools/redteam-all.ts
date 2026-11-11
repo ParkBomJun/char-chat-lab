@@ -19,7 +19,8 @@ import { renderFixedBlock } from "@/lib/chat/assemble";
 import { loadConfig } from "@/lib/config";
 import { getLlm } from "@/lib/llm";
 import { estimateCost, pricing } from "@/lib/pricing";
-import { effectiveEnv } from "@/lib/test-guard";
+import { mergeLlmEnv } from "@/lib/llm-settings";
+import { effectiveEnv, isRealLlmBlocked } from "@/lib/test-guard";
 import { renderAllReport } from "../lib/all-report";
 import { LlmJudge, MockJudge, SAMPLE_SIZE, agreement, autoJudge, mutationTable, parseSampleCsv, pickSample, renderSampleCsv, toJudgeRows, withheldHarmful, type AutoJudgeRecord, type Judge } from "../lib/auto-judge";
 import { detectFormat, parseTable, tableToSet } from "../lib/convert";
@@ -75,6 +76,26 @@ function gitInfo(): string {
     return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim() + (execSync("git status --porcelain", { encoding: "utf8" }).trim() ? " (미커밋 변경 있음)" : "");
   } catch {
     return "알 수 없음";
+  }
+}
+
+/**
+ * 이 실행(과 자식 실행)이 쓸 LLM 환경.
+ *  - --real이 없으면 mock을 강제한다.
+ *  - --real이면 서비스와 같은 우선순위(관리자 화면에 저장된 설정 > 환경변수)로 정한다. 저장된 설정은 읽기만 하고,
+ *    키는 자식 프로세스의 환경변수로만 넘긴다(출력·파일 저장 없음). 테스트 환경은 ALLOW_REAL_LLM=1이 없으면 mock으로 남는다.
+ */
+async function runEnv(): Promise<Record<string, string | undefined>> {
+  if (!a.real) return { ...process.env, LLM_PROVIDER: "mock", LLM_API_KEY: "" };
+  if (isRealLlmBlocked()) return effectiveEnv();
+  const { loadLlmSettings } = await import("@/lib/settings-db");
+  const { prisma } = await import("@/lib/db");
+  try {
+    const saved = await loadLlmSettings();
+    if (saved) console.log("LLM 설정: 관리자 화면에 저장된 설정을 사용합니다(서비스와 같은 설정).");
+    return mergeLlmEnv(effectiveEnv(), saved);
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
@@ -184,9 +205,9 @@ async function main() {
     if (benign.cases.length === 0) throw new Error("표에 정상(통과) 케이스가 없습니다.");
     const benignFile = path.join(GENERATED, `${stem}.benign.json`);
     writeFileSync(benignFile, JSON.stringify(benign, null, 2) + "\n", "utf8");
-    const env = a.real ? effectiveEnv() : { ...process.env, LLM_PROVIDER: "mock", LLM_API_KEY: "" };
+    const env = await runEnv();
     const llm = getLlm(env);
-    if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(.env의 LLM_API_KEY, 또는 테스트 환경이면 ALLOW_REAL_LLM=1).");
+    if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(관리자 화면에 저장한 설정이나 .env의 LLM_API_KEY, 테스트 환경이면 ALLOW_REAL_LLM=1).");
     const app = loadConfig();
     const maxTurns = a["max-turns"] ? Math.max(1, Math.floor(Number(a["max-turns"]))) : undefined;
     const plan = estimatePlan({ convs: benign.cases.map((c) => (maxTurns ? c.turns.slice(0, maxTurns) : c.turns)), fixedChars: renderFixedBlock(loadCharacter(a.character!)).length, generate: true, appSafety: true, maxOutputTokens: app.maxOutputTokens, promptTokenBudget: app.promptTokenBudget, chatModel: llm.chatModel, lightModel: llm.lightModel, table: pricing });
@@ -200,7 +221,7 @@ async function main() {
     const base = path.join(RESULTS, runId);
     const r = spawnSync(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), "eval/run.ts", "redteam", "--redteam-file", benignFile, "--character", a.character!, ...(maxTurns ? ["--max-turns", String(maxTurns)] : []), ...(a.real ? ["--yes"] : []), "--stem", `${runId}-run`], {
       stdio: "inherit",
-      env: { ...process.env, ...(a.real ? {} : { LLM_PROVIDER: "mock", LLM_API_KEY: "" }) },
+      env: env as NodeJS.ProcessEnv,
     });
     if (r.status !== 0) throw new Error(`정상 케이스 실행이 실패했습니다(종료 코드 ${r.status ?? "신호"}).`);
     const rep = readJson<{ redteam: RedteamReport[] }>(`${base}-run.json`).redteam[0];
@@ -243,9 +264,9 @@ async function main() {
   console.log(`변환: ${set.cases.length}케이스 → ${rel(setFile)}${a.mutate ? (mutated ? ` · 변형 ${mutated.cases.length}개(시드 ${seed}, 원본당 최대 ${perCase}개) → ${rel(files[1])}` : " · 변형할 공격 케이스가 없습니다") : ""}`);
 
   // ── 2. 모드·판정 모델 ──
-  const env = a.real ? effectiveEnv() : { ...process.env, LLM_PROVIDER: "mock", LLM_API_KEY: "" };
+  const env = await runEnv();
   const llm = getLlm(env);
-  if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(.env의 LLM_API_KEY, 또는 테스트 환경이면 ALLOW_REAL_LLM=1).");
+  if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(관리자 화면에 저장한 설정이나 .env의 LLM_API_KEY, 테스트 환경이면 ALLOW_REAL_LLM=1).");
   // 공격 케이스를 실제 모델에 보내는 실행은 제공사 승인이 있어야 한다
   const approvalError = redteamApprovalError({ real: a.real, attackCases: attackN });
   if (approvalError) {
@@ -290,7 +311,7 @@ async function main() {
   // ── 4. 켬 / 끔 실행 ──
   const runId = uniqueId(`${date}${a.real ? "" : "-mock"}-${stem}`, ["-on.md", "-off.md", ".run.json", ".report.md"]);
   const base = path.join(RESULTS, runId);
-  const childEnv = { ...process.env, ...(a.real ? {} : { LLM_PROVIDER: "mock", LLM_API_KEY: "" }) };
+  const childEnv = env as NodeJS.ProcessEnv;
   const runChild = (label: string, extra: string[]) => {
     console.log(`\n━━ ${label} ━━`);
     const args = [path.resolve("node_modules/tsx/dist/cli.mjs"), "eval/run.ts", "redteam", ...files.flatMap((f) => ["--redteam-file", f]), "--character", a.character!, ...(maxTurns ? ["--max-turns", String(maxTurns)] : []), ...(a.real ? ["--yes"] : []), ...extra];
