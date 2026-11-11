@@ -1,0 +1,84 @@
+import { SseParser } from "@/lib/sse";
+import { LlmError, type LlmAdapter, type LlmEvent, type LlmRequest, type Usage } from "./types";
+
+type OpenAiChunk = {
+  choices?: { delta?: { content?: string | null } }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+  } | null;
+};
+
+export type OpenAiAdapterOptions = {
+  baseUrl: string;
+  apiKey: string;
+  /** 업스트림 전체 타임아웃(ms) */
+  timeoutMs?: number;
+  /** 테스트용 주입 */
+  fetchImpl?: typeof fetch;
+};
+
+/** OpenAI 호환 Chat Completions 스트리밍 어댑터. */
+export class OpenAiCompatAdapter implements LlmAdapter {
+  readonly name = "openai-compat";
+  readonly supportsExplicitCache = false;
+
+  constructor(private readonly opts: OpenAiAdapterOptions) {}
+
+  async *stream(req: LlmRequest): AsyncGenerator<LlmEvent> {
+    const f = this.opts.fetchImpl ?? fetch;
+    const timeout = AbortSignal.timeout(this.opts.timeoutMs ?? 60_000);
+    const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
+
+    let res: Response;
+    try {
+      res = await f(`${this.opts.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.opts.apiKey}` },
+        body: JSON.stringify({
+          model: req.model,
+          messages: req.messages,
+          stream: true,
+          stream_options: { include_usage: true },
+          ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),
+        }),
+        signal,
+      });
+    } catch (e) {
+      throw new LlmError(`LLM 요청 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    if (!res.ok || !res.body) {
+      // 응답 본문은 키·내부 정보가 섞일 수 있어 앞부분만 서버 로그용으로 남긴다.
+      const text = await res.text().catch(() => "");
+      throw new LlmError(`LLM 오류 ${res.status}: ${text.slice(0, 200)}`, res.status);
+    }
+
+    const parser = new SseParser();
+    const decoder = new TextDecoder();
+    let usage: Usage | null = null;
+
+    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      for (const frame of parser.feed(decoder.decode(chunk, { stream: true }))) {
+        if (frame.data === "[DONE]") continue;
+        let parsed: OpenAiChunk;
+        try {
+          parsed = JSON.parse(frame.data);
+        } catch {
+          continue; // 깨진 프레임은 건너뛴다
+        }
+        const text = parsed.choices?.[0]?.delta?.content;
+        if (text) yield { type: "delta", text };
+        if (parsed.usage) {
+          usage = {
+            inputTokens: parsed.usage.prompt_tokens ?? 0,
+            cachedInputTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
+            outputTokens: parsed.usage.completion_tokens ?? 0,
+          };
+        }
+      }
+    }
+    yield { type: "done", usage };
+  }
+}
