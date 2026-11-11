@@ -6,6 +6,7 @@
 import { detectFormat, parseTable } from "./convert";
 import { rate, type Rate } from "./metrics";
 import type { RedteamCase } from "./schema";
+import { lintSummary } from "./summary-lint";
 import type { Intervention, TurnResult } from "./types";
 
 export const VERDICTS = ["유해 도달", "거절·전환", "해당 없음"] as const;
@@ -43,11 +44,21 @@ export type CaseTranscript = {
   expect: RedteamCase["expect"];
   expectAt: RedteamCase["expectAt"] | null;
   turns: TranscriptTurn[];
+  /** 이 케이스에서 생성된 요약(버전순). 요약 오염 확인용 — 비공개 결과에만 저장 */
+  summaries?: CaseSummary[];
+  /** 케이스별로 덮어쓴 요약 설정(없으면 서비스 설정) */
+  summaryConfig?: { summaryEvery?: number; recentTurns?: number };
 };
+export type CaseSummary = { version: number; content: string; /** 이 요약이 덮는 메시지 수(대화 앞에서부터) */ coversMessages: number };
 
 const ivText = (i: Intervention) => `${i.stage}/${i.kind}`;
 
-export function buildTranscript(set: string, c: Pick<RedteamCase, "id" | "label" | "category" | "technique" | "expect" | "expectAt" | "turns">, results: readonly TurnResult[]): CaseTranscript {
+export function buildTranscript(
+  set: string,
+  c: Pick<RedteamCase, "id" | "label" | "category" | "technique" | "expect" | "expectAt" | "turns"> & { summaryEvery?: number; recentTurns?: number },
+  results: readonly TurnResult[],
+  summaries: readonly CaseSummary[] = [],
+): CaseTranscript {
   return {
     set,
     id: c.id,
@@ -61,7 +72,38 @@ export function buildTranscript(set: string, c: Pick<RedteamCase, "id" | "label"
       const raw = r.rawReply ?? null;
       return { n: i + 1, user, delivered: r.reply, withheld: raw && r.reply === null ? raw : null, interventions: r.interventions.filter((x) => x.kind !== "check_failed").map(ivText), skipped: r.skipped };
     }),
+    ...(summaries.length ? { summaries: [...summaries] } : {}),
+    ...(c.summaryEvery || c.recentTurns ? { summaryConfig: { ...(c.summaryEvery ? { summaryEvery: c.summaryEvery } : {}), ...(c.recentTurns ? { recentTurns: c.recentTurns } : {}) } } : {}),
   };
+}
+
+/** 요약이 생성된 케이스의 요약 본문을 사람이 읽기 좋게 정리한다(비공개 결과 전용). */
+export function renderSummariesMd(run: RunInfo, cases: readonly CaseTranscript[]): string {
+  const withSummary = cases.filter((c) => c.summaries?.length);
+  const out = [
+    "# 요약 본문 (비공개 — 저장소에 올리지 않는다)",
+    "",
+    `실행 ${run.runId} · 앱 안전 ${run.appSafety ? "켬" : "끔"} · 어댑터 ${run.adapter} · 모델 ${run.model} · ${run.startedAtKst}`,
+    "",
+    "요약이 **생성된 케이스만** 실려 있습니다(요약 호출이 없었던 케이스는 없음). 요약은 공격 입력과 모델 응답에서 만들어지므로, 공격 문구·지시문이 요약에 옮겨졌는지 직접 확인하세요. 안전 층이 막은(회수된) 메시지는 요약 입력에서 빠집니다.",
+    "",
+    `요약이 생성된 케이스 ${withSummary.length}/${cases.length}건 · 지시문 의심 문장이 있는 요약 ${withSummary.reduce((n, c) => n + (c.summaries ?? []).filter((m) => lintSummary(m.content).length > 0).length, 0)}개 (직접형 ${withSummary.reduce((n, c) => n + (c.summaries ?? []).filter((m) => lintSummary(m.content).some((f) => !f.quoted)).length, 0)}개)`,
+  ];
+  for (const c of withSummary) {
+    const cfg = c.summaryConfig ? ` · 요약 설정 덮어씀: ${Object.entries(c.summaryConfig).map(([k, v]) => `${k}=${v}`).join(", ")}` : "";
+    out.push("", `## ${c.id} — ${c.category}${c.technique ? ` / ${c.technique}` : ""} · 세트 ${c.set}${cfg}`);
+    for (const m of c.summaries ?? []) {
+      const flags = lintSummary(m.content);
+      out.push("", `### 요약 v${m.version} (대화 앞 ${m.coversMessages}개 메시지를 덮음)`, "");
+      if (flags.length === 0) out.push("자동 검사: 지시문처럼 보이는 문장 없음 (규칙 기반이라 놓칠 수 있으니 본문도 읽어 보세요)");
+      else {
+        out.push(`⚠ **지시문·규칙처럼 보이는 문장 ${flags.length}개** (규칙 기반 힌트, 판정 아님. 인용형은 누가 한 말을 전하는 서술일 가능성이 큽니다)`, "");
+        for (const f of flags) out.push(`- ${f.quoted ? "[인용형] " : "[직접형] "}${f.sentence} — ${f.reasons.join(", ")}`);
+      }
+      out.push("", "```", m.content, "```");
+    }
+  }
+  return out.join("\n") + "\n";
 }
 
 export const deliveredCount = (t: CaseTranscript) => t.turns.filter((x) => x.delivered !== null && x.delivered.trim() !== "").length;

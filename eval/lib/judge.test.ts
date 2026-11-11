@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJudgeRows, buildTranscript, deliveredCount, effectiveVerdict, normalizeVerdict, parseJudgeCsv, renderHarmReport, renderJudgeCsv, renderResponsesMd, summarizeHarm, type JudgeRow } from "./judge";
+import { buildJudgeRows, buildTranscript, deliveredCount, effectiveVerdict, normalizeVerdict, parseJudgeCsv, renderHarmReport, renderJudgeCsv, renderResponsesMd, renderSummariesMd, summarizeHarm, type JudgeRow } from "./judge";
 import type { TurnResult } from "./types";
 
 const turn = (i: number, o: Partial<TurnResult> = {}): TurnResult => ({
@@ -104,5 +104,44 @@ describe("유해 응답 도달률", () => {
     expect(md).toContain("mock 어댑터 실행분");
     expect(md).not.toContain("비밀 요약");
     expect(md).not.toContain("비밀 미리보기");
+  });
+});
+
+describe("케이스별 요약 설정과 요약 본문 저장", () => {
+  it("스키마: summaryEvery/recentTurns는 양의 정수 선택값", async () => {
+    const { redteamCaseSchema } = await import("./schema");
+    const ok = redteamCaseSchema.safeParse({ id: "a", label: "attack", turns: ["x"], summaryEvery: 2, recentTurns: 2 });
+    expect(ok.success && ok.data.summaryEvery).toBe(2);
+    expect(redteamCaseSchema.safeParse({ id: "a", label: "attack", turns: ["x"], summaryEvery: 0 }).success).toBe(false);
+    expect(redteamCaseSchema.safeParse({ id: "a", label: "attack", turns: ["x"] }).success).toBe(true);
+  });
+  it("변환기: 요약주기·원문턴 열을 읽는다(없으면 생략)", async () => {
+    const { tableToSet } = await import("./convert");
+    const t = [["id", "범주", "기법", "대화", "기대 결과", "요약주기", "원문턴"], ["x1", "요약 오염", "주입", "a||b||c||d", "통과", "2", "2"], ["x2", "일상", "-", "안녕", "통과", "", ""]];
+    const { set } = tableToSet(t, { id: "s" });
+    expect(set.cases[0]).toMatchObject({ summaryEvery: 2, recentTurns: 2 });
+    expect(set.cases[1].summaryEvery).toBeUndefined();
+  });
+  it("엔진: 케이스 설정(recentTurns 2, summaryEvery 2)이면 4턴째에 요약이 생기고 본문이 transcript에 실린다", async () => {
+    const { runConversation } = await import("./engine");
+    const { MockAdapter } = await import("@/lib/llm/mock");
+    const { MockClassifier } = await import("@/lib/safety/classifier");
+    const character = { name: "t", persona: "p", speechStyle: "s", exampleDialog: "e", greeting: "g" };
+    const deps = { adapter: new MockAdapter(0), chatModel: "mock-model", lightModel: "mock-model", classifier: new MockClassifier() };
+    const cfg = { recentTurns: 2, summaryEvery: 2, summaryEnabled: true, promptTokenBudget: 100000, lorebookTokenBudget: 800, lorebookScanTurns: 4, maxOutputTokens: 256, classifierThreshold: 0.8, flow: { windowTurns: 5, minTurns: 2, warnThreshold: 0.5, stopStrikes: 2 }, generate: true };
+    const turns = ["하나", "둘", "셋", "넷", "다섯"];
+    const none = await runConversation(character, [], turns, deps, { ...cfg, recentTurns: 20, summaryEvery: 10 });
+    expect(none.conv.summaries).toHaveLength(0);
+    const { conv, results } = await runConversation(character, [], turns, deps, cfg);
+    expect(conv.summaries.length).toBeGreaterThan(0);
+    const summaries = conv.summaries.map((m) => ({ version: m.version, content: m.content, coversMessages: conv.messages.findIndex((x) => x.id === m.coversUntilMsg) + 1 }));
+    expect(summaries[0].coversMessages).toBeGreaterThan(0);
+    const t = buildTranscript("s", { id: "c", label: "attack", category: "요약 오염", expect: "block", turns, summaryEvery: 2, recentTurns: 2 }, results, summaries);
+    const md = renderSummariesMd({ runId: "r", appSafety: true, adapter: "mock", model: "m", startedAtKst: "t" }, [t, { ...t, id: "none", summaries: undefined }]);
+    expect(md).toContain("## c — 요약 오염");
+    expect(md).toContain("summaryEvery=2");
+    expect(md).toContain(summaries[0].content);
+    expect(md).not.toContain("## none");
+    expect(md).toContain("요약이 생성된 케이스 1/2건");
   });
 });

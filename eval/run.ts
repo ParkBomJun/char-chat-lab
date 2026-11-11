@@ -12,7 +12,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "@/lib/config";
 import { getLlm } from "@/lib/llm";
-import { effectiveEnv } from "@/lib/test-guard";
+import { effectiveEnv, isTestEnv } from "@/lib/test-guard";
 import { pricing } from "@/lib/pricing";
 import { renderFixedBlock } from "@/lib/chat/assemble";
 import { estimateTokens } from "@/lib/tokens";
@@ -20,7 +20,8 @@ import { getClassifier } from "@/lib/safety";
 import { runConversation, type EngineConfig, type EngineDeps } from "./lib/engine";
 import { EVAL_DIR, PRIVATE_DIR, loadCharacter, loadRedteamSetsTagged, loadScenarios } from "./lib/load";
 import { estimatePlan } from "./lib/plan";
-import { buildJudgeRows, buildTranscript, renderJudgeCsv, renderResponsesMd, type CaseTranscript } from "./lib/judge";
+import { lintSummary } from "./lib/summary-lint";
+import { buildJudgeRows, buildTranscript, renderJudgeCsv, renderResponsesMd, renderSummariesMd, type CaseTranscript } from "./lib/judge";
 import { classifyCase, compareRuns, summarizeRedteam, summarizeRun } from "./lib/metrics";
 import { renderReport, type RedteamReport, type ReportMeta, type ScenarioReport } from "./lib/report";
 
@@ -78,6 +79,12 @@ if (!baseCfg.appSafety && what === "scenarios") console.log("※ --no-app-safety
 const scenarios = what === "redteam" ? [] : loadScenarios(args.scenario);
 const loadedSets = what === "scenarios" ? [] : loadRedteamSetsTagged(args["redteam-file"], args.private);
 const redteamSets = loadedSets.map((x) => x.set);
+// 케이스별 요약 설정 덮어쓰기는 테스트 환경(APP_ENV=test)에서만 쓴다. 운영과 같은 설정으로 잰 결과와 섞이지 않게 막는다.
+const overridden = loadedSets.flatMap(({ set }) => set.cases.filter((c) => c.summaryEvery !== undefined || c.recentTurns !== undefined).map((c) => `${set.id}/${c.id}`));
+if (overridden.length && !isTestEnv()) {
+  console.error(`케이스에 summaryEvery/recentTurns가 지정돼 있지만 테스트 환경이 아닙니다(APP_ENV=test 필요): ${overridden.slice(0, 5).join(", ")}${overridden.length > 5 ? ` 외 ${overridden.length - 5}건` : ""}\n테스트 환경에서 실행하거나(scripts/test-run.ts 경유) 케이스의 해당 열을 지우세요. 아무것도 호출하지 않고 종료합니다.`);
+  process.exit(1);
+}
 const hasPrivate = loadedSets.some((x) => x.isPrivate);
 const cut = <T,>(xs: readonly T[]) => (maxTurns ? xs.slice(0, maxTurns) : xs);
 
@@ -163,9 +170,13 @@ async function runRedteam(): Promise<RedteamReport[]> {
     console.log(`\n▶ 레드팀 ${set.id} (${set.cases.length}케이스)`);
     const cases = [];
     for (const c of set.cases) {
-      const { results } = await runConversation(character, [], cut(c.turns), deps, baseCfg);
+      const caseCfg = { ...baseCfg, ...(c.summaryEvery !== undefined ? { summaryEvery: c.summaryEvery } : {}), ...(c.recentTurns !== undefined ? { recentTurns: c.recentTurns } : {}) };
+      const { conv, results } = await runConversation(character, [], cut(c.turns), deps, caseCfg);
       const r = classifyCase(c, results, { appSafety: baseCfg.appSafety !== false });
-      if (isPrivate) transcripts.push(buildTranscript(set.id, c, results));
+      if (isPrivate) {
+        const summaries = conv.summaries.map((m) => ({ version: m.version, content: m.content, coversMessages: conv.messages.findIndex((x) => x.id === m.coversUntilMsg) + 1 }));
+        transcripts.push(buildTranscript(set.id, c, results, summaries));
+      }
       cases.push(r);
       console.log(`  ${r.outcome === "success" ? "✓" : r.outcome === "fail" ? "✗" : "?"} ${c.id} [${c.label}→${c.expect}] ${r.firstIntervention ? `${r.firstIntervention.turn}턴 ${r.firstIntervention.stage}/${r.firstIntervention.kind}` : "개입 없음"}`);
     }
@@ -245,6 +256,10 @@ async function main() {
       const base = path.join(dir, stem2);
       writeFileSync(`${base}.responses.json`, JSON.stringify({ run, cases: transcripts }, null, 2), "utf8");
       writeFileSync(`${base}.responses.md`, renderResponsesMd(run, transcripts), "utf8");
+      if (transcripts.some((t) => t.summaries?.length)) {
+        writeFileSync(`${base}.summaries.md`, renderSummariesMd(run, transcripts), "utf8");
+        console.log(`요약 본문(비공개): ${path.relative(process.cwd(), base)}.summaries.md — 요약이 생성된 케이스 ${transcripts.filter((t) => t.summaries?.length).length}건, 지시문 의심(직접형) 요약 ${transcripts.flatMap((t) => t.summaries ?? []).filter((m) => lintSummary(m.content).some((f) => !f.quoted)).length}개`);
+      }
       const rows = buildJudgeRows(run, transcripts);
       writeFileSync(`${base}.judge.csv`, renderJudgeCsv(rows), "utf8");
       console.log(`응답 원문(비공개): ${path.relative(process.cwd(), base)}.responses.md / .json`);

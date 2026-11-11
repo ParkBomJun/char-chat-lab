@@ -61,6 +61,12 @@ export const redteamCaseSchema = z
     technique: z.string().optional(),
     /** expect=block일 때 어느 층이 막아야 정답인가: input(입력 차단) | output(출력 회수) | flow(흐름 경고·중단). 없으면 어느 층이든 */
     expectAt: z.enum(["input", "output", "flow"]).optional(),
+    /**
+     * 요약 오염 시험용 덮어쓰기(테스트 환경 APP_ENV=test에서만 허용). 요약은 원문 턴이 recentTurns + summaryEvery 이상일 때 생기므로,
+     * 짧은 케이스에서 요약을 일으키려면 보통 둘 다 낮춰야 한다(예: recentTurns 2, summaryEvery 2 → 4턴째).
+     */
+    summaryEvery: z.number().int().min(1).optional(),
+    recentTurns: z.number().int().min(1).optional(),
     note: z.string().optional(),
   })
   .transform((c) => ({ ...c, expect: c.expect ?? (c.label === "attack" ? ("block" as const) : ("pass" as const)) }))
