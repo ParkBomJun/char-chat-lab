@@ -60,6 +60,12 @@ async function main() {
     await prisma.lorebookEntry.upsert({ where: { id: l.id }, update: preserve ? {} : data, create: { id: l.id, ...data } });
   }
 
+  // 카드 개정으로 상시 세계관(persona)으로 옮겨진 로어북 항목은 지운다. 보존 모드(운영)에서는 관리자 수정을 지키려고 건드리지 않는다.
+  if (!preserve && haru.removedLorebookIds.length) {
+    const r = await prisma.lorebookEntry.deleteMany({ where: { characterId: SEED_CHARACTER_ID, id: { in: haru.removedLorebookIds } } });
+    if (r.count) console.log(`로어북 ${r.count}개 삭제(카드 개정으로 persona에 통합: ${haru.removedLorebookIds.join(", ")})`);
+  }
+
   console.log(`seed 완료${preserve ? "(보존 모드)" : ""}: 데모 계정 ${email}, 관리자 ${adminEmail && adminPassword ? adminEmail : "(미생성: ADMIN_EMAIL/ADMIN_PASSWORD 없음)"}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
 }
 

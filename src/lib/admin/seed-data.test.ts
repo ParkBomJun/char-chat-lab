@@ -15,6 +15,13 @@ describe("시드 캐릭터 데이터 (prisma/seed-data/haru.json)", () => {
       expect(l.content.length).toBeLessThanOrEqual(1000);
     }
   });
+  it("v3 카드: 정원·고양이·마을 항목은 persona로 옮겨져 로어북에서 빠졌고, 드문 세부만 남는다", () => {
+    const ids = haru.lorebook.map((l) => l.id);
+    expect(haru.removedLorebookIds.sort()).toEqual(["seed-lore-1", "seed-lore-4", "seed-lore-5"]);
+    for (const id of haru.removedLorebookIds) expect(ids).not.toContain(id);
+    expect(haru.lorebook.map((l) => l.keywords[0])).toEqual(["윤 선생님", "동화 시간", "등불 축제", "연체 메모"]);
+    for (const k of ["허브 정원", "고양이 '책갈피'", "강 할머니", "우체부 도윤", "지하 서고", "연체 메모"]) expect(haru.character.persona).toContain(k);
+  });
   it("★ 우리 조립기가 치환하지 않는 {{user}} 같은 매크로가 카드에 남아 있지 않다(모델에 글자 그대로 보임)", () => {
     expect(JSON.stringify(haru)).not.toMatch(/\{\{|\}\}/);
   });
