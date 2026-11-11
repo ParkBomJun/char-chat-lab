@@ -2,12 +2,16 @@
  * 레드팀 일괄 실행.
  *   npm run redteam:all -- --private <표 파일> [--mutate] [--per-case 4] [--seed <시드>] [--character <이름>] [--max-turns N] [--real --yes]
  *   npm run redteam:all -- --report-only <실행 이름>      수동 판정 표본을 채운 뒤 리포트만 다시 만든다(호출 없음)
+ *   npm run redteam:all -- --private <표 파일> --rules-only [--mutate]   모델 호출 없이 규칙 층만 평가
+ *   npm run redteam:all -- --private <표 파일> --benign-only [--real --yes]   정상 케이스만 실행(오탐률·분류기 지연·응답 품질)
+ * 공격 케이스가 들어간 실제 실행은 REDTEAM_APPROVED=1이 있어야 시작한다(OpenRouter는 승인 없는 레드팀을 금지).
  * 순서: 표 변환 → (변형 생성) → 앱 안전 켬 실행 → --no-app-safety 실행 → 자동 판정 → 판정기 검증 표본 → 종합 리포트.
  * 실제 API는 --real --yes를 둘 다 줬을 때만 호출한다. --real이 없으면 mock으로 돈다(동작 확인용).
  * 변환된 세트·변형·응답 원문·판정 프롬프트·결과는 전부 eval/redteam/private/ 안에만 쓴다.
  */
 import "dotenv/config";
-import { spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -23,6 +27,10 @@ import { renderJudgeCsv, summarizeHarm, type CaseTranscript, type RunInfo } from
 import { PRIVATE_DIR, loadCharacter } from "../lib/load";
 import type { CaseResult } from "../lib/metrics";
 import { DEFAULT_PER_CASE, DEFAULT_SEED, mutateSet } from "../lib/mutate";
+import { redteamApprovalError } from "../lib/policy";
+import { evalRuleSets, renderRulesReport, summarizeRules, type RuleEvaluator } from "../lib/rules-eval";
+import { qualitySection, rateText, type RedteamReport } from "../lib/report";
+import { checkRules } from "@/lib/safety/rules";
 import { TOKEN_SCALE, estimatePlan } from "../lib/plan";
 import type { RedteamSet } from "../lib/schema";
 
@@ -41,6 +49,8 @@ const { values: a } = parseArgs({
     real: { type: "boolean", default: false },
     yes: { type: "boolean", default: false },
     "report-only": { type: "string" },
+    "rules-only": { type: "boolean", default: false },
+    "benign-only": { type: "boolean", default: false },
   },
 });
 
@@ -56,6 +66,20 @@ type RunFile = {
 type RunJson = { redteam: { set: RedteamSet; cases: CaseResult[] }[] };
 type ResponsesJson = { run: RunInfo; cases: CaseTranscript[] };
 const readJson = <T,>(f: string) => JSON.parse(readFileSync(f, "utf8")) as T;
+
+/** 지금 서비스가 쓰는 입력 규칙(한 단계: 걸리면 바로 차단·위기 안내) */
+const currentRules: RuleEvaluator = (text) => {
+  const r = checkRules(text, "input");
+  return { hard: r.kind === "none" ? null : { kind: r.kind, category: r.category }, soft: [] };
+};
+
+function gitInfo(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim() + (execSync("git status --porcelain", { encoding: "utf8" }).trim() ? " (미커밋 변경 있음)" : "");
+  } catch {
+    return "알 수 없음";
+  }
+}
 
 /** 저장된 실행 결과들로 종합 리포트를 만든다(호출 없음). */
 function writeReport(runId: string) {
@@ -128,6 +152,95 @@ async function main() {
     files.push(f);
   }
   const sets = mutated ? [set, mutated] : [set];
+  const date = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+  const uniqueId = (stemBase: string, suffixes: string[]) => {
+    let id = stemBase;
+    for (let i = 2; suffixes.some((x) => existsSync(path.join(RESULTS, id + x))); i++) id = `${stemBase}-${i}`;
+    return id;
+  };
+
+  // ── 규칙 층만 평가: 모델을 부르지 않는다 ──
+  if (a["rules-only"]) {
+    const runId = uniqueId(`${date}-rules-${stem}`, [".rules.md", ".rules.json"]);
+    const rows = evalRuleSets(sets, currentRules);
+    const rep = summarizeRules(rows);
+    const meta = {
+      runId,
+      generatedKst: new Date().toLocaleString("sv-SE", { timeZone: "Asia/Seoul" }),
+      source: path.basename(input),
+      rulesHash: createHash("sha256").update(readFileSync(path.resolve("src/config/safety-rules.json"))).digest("hex").slice(0, 12),
+      commit: gitInfo(),
+      mutate: { enabled: a.mutate, seed, perCase, variants: mutated?.cases.length ?? 0 },
+    };
+    writeFileSync(path.join(RESULTS, `${runId}.rules.md`), renderRulesReport(rep, meta), "utf8");
+    writeFileSync(path.join(RESULTS, `${runId}.rules.json`), JSON.stringify({ meta, report: rep, rows }, null, 2), "utf8");
+    const t = rep.total;
+    console.log(`규칙 층 평가(모델 호출 없음): 공격 ${t.attack.n}건 HARD 적중 ${rateText(t.attack.hard)} · SOFT만 ${t.attack.softOnly.k} · 놓침 ${t.attack.missed.k} / 정상 ${t.benign.n}건 오탐 ${rateText(t.benign.falsePositive)}`);
+    console.log(`결과: ${rel(path.join(RESULTS, runId))}.rules.md (+ .json)`);
+    return;
+  }
+
+  // ── 정상 케이스만 실행: 공격 문구를 모델에 보내지 않는다 ──
+  if (a["benign-only"]) {
+    if (a.mutate) console.log("※ --benign-only에서는 --mutate를 무시합니다(변형은 공격 케이스에서만 만듭니다).");
+    const benign = { ...set, id: `${set.id}-benign`, description: "정상 케이스만 추린 세트", cases: set.cases.filter((c) => c.label === "benign") };
+    if (benign.cases.length === 0) throw new Error("표에 정상(통과) 케이스가 없습니다.");
+    const benignFile = path.join(GENERATED, `${stem}.benign.json`);
+    writeFileSync(benignFile, JSON.stringify(benign, null, 2) + "\n", "utf8");
+    const env = a.real ? effectiveEnv() : { ...process.env, LLM_PROVIDER: "mock", LLM_API_KEY: "" };
+    const llm = getLlm(env);
+    if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(.env의 LLM_API_KEY, 또는 테스트 환경이면 ALLOW_REAL_LLM=1).");
+    const app = loadConfig();
+    const maxTurns = a["max-turns"] ? Math.max(1, Math.floor(Number(a["max-turns"]))) : undefined;
+    const plan = estimatePlan({ convs: benign.cases.map((c) => (maxTurns ? c.turns.slice(0, maxTurns) : c.turns)), fixedChars: renderFixedBlock(loadCharacter(a.character!)).length, generate: true, appSafety: true, maxOutputTokens: app.maxOutputTokens, promptTokenBudget: app.promptTokenBudget, chatModel: llm.chatModel, lightModel: llm.lightModel, table: pricing });
+    console.log(`\n모드: ${a.real ? "실제 API" : "mock(실제 호출 없음)"} · 정상 케이스만 ${benign.cases.length}개, ${plan.turns}턴 · 대화 ${llm.chatModel} · 분류기 ${llm.lightModel}`);
+    console.log(`  예상(대략, 요약·재시도 제외): 호출 약 ${plan.calls}회(대화 ${plan.chatCalls} + 분류기 ${plan.classifierCalls}) · 입력 약 ${Math.round(plan.inputTokens / 1000)}K토큰 · 출력 약 ${Math.round(plan.outputTokens / 1000)}K토큰 · 비용 ${plan.cost === null ? "계산 불가(단가표에 없거나 0)" : `약 $${plan.cost.toFixed(4)}`}`);
+    if (a.real && !a.yes) {
+      console.error("\n실제 API를 호출하므로 비용이 발생합니다. 위 예상을 확인했다면 --yes를 붙여 다시 실행하세요. 아무것도 호출하지 않았습니다.");
+      process.exit(2);
+    }
+    const runId = uniqueId(`${date}${a.real ? "" : "-mock"}-benign-${stem}`, ["-run.md", ".benign-report.md"]);
+    const base = path.join(RESULTS, runId);
+    const r = spawnSync(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), "eval/run.ts", "redteam", "--redteam-file", benignFile, "--character", a.character!, ...(maxTurns ? ["--max-turns", String(maxTurns)] : []), ...(a.real ? ["--yes"] : []), "--stem", `${runId}-run`], {
+      stdio: "inherit",
+      env: { ...process.env, ...(a.real ? {} : { LLM_PROVIDER: "mock", LLM_API_KEY: "" }) },
+    });
+    if (r.status !== 0) throw new Error(`정상 케이스 실행이 실패했습니다(종료 코드 ${r.status ?? "신호"}).`);
+    const rep = readJson<{ redteam: RedteamReport[] }>(`${base}-run.json`).redteam[0];
+    const s = rep.summary;
+    const lat = (x: { n: number; p50: number | null; p95: number | null }) => (x.n ? `${Math.round(x.p50 ?? 0)}ms / ${Math.round(x.p95 ?? 0)}ms (${x.n}회)` : "—");
+    const fp = rep.cases.filter((c) => c.outcome === "fail");
+    const md = [
+      `# 정상 케이스 실행 리포트 — ${runId}`,
+      "",
+      ...(a.real ? [] : ["> ⚠️ **mock 어댑터 실행입니다.** 응답·판정이 가짜라 수치에 의미가 없습니다(동작 확인용).", ""]),
+      `생성 ${new Date().toLocaleString("sv-SE", { timeZone: "Asia/Seoul" })} · 입력 표 ${path.basename(input)} · 대화 모델 ${llm.chatModel} · 분류기 ${llm.lightModel} · 정상 케이스 ${benign.cases.length}개`,
+      "",
+      "정상(통과 기대) 케이스만 서비스와 같은 안전 파이프라인으로 실행했습니다. 공격 문구는 모델에 보내지 않았습니다.",
+      "",
+      "| 지표 | 값 |",
+      "| --- | --- |",
+      `| 오탐률(케이스) | ${rateText(s.benignFalsePositive)} |`,
+      `| 오탐률(턴) | ${rateText(s.benignTurnFalsePositive)} |`,
+      `| 분류기 지연 p50 / p95 (전체) | ${lat(s.classifierLatency.all)} |`,
+      `| 분류기 지연 p50 / p95 (입력 검사) | ${lat(s.classifierLatency.input)} |`,
+      `| 분류기 지연 p50 / p95 (출력 검사) | ${lat(s.classifierLatency.output)} |`,
+      `| ERROR(검사 장애, 오탐 아님) | ${s.checkFailed} |`,
+      "",
+      `**오탐 케이스(${fp.length}건)**`,
+      "",
+      fp.length ? ["| 케이스 | 범주 | 기법 | 첫 개입(턴·단계·종류) |", "| --- | --- | --- | --- |", ...fp.map((c) => `| ${c.id} | ${c.category} | ${c.technique ?? "—"} | ${c.firstIntervention ? `${c.firstIntervention.turn}턴 · ${c.firstIntervention.stage} · ${c.firstIntervention.kind}` : "—"} |`)].join("\n") : "없음",
+      "",
+      ...qualitySection([["정상 케이스 응답", rep.quality]]),
+      "",
+      "## 실행 상세 (기존 리포트)",
+      "",
+      readFileSync(`${base}-run.md`, "utf8").replace(/^(#{1,4}) /gm, "##$1 ").trim(),
+    ].join("\n") + "\n";
+    writeFileSync(`${base}.benign-report.md`, md, "utf8");
+    console.log(`\n정상 케이스 리포트: ${rel(base)}.benign-report.md`);
+    return;
+  }
   const cases = sets.flatMap((s) => s.cases);
   const attackN = cases.filter((c) => c.label === "attack").length;
   console.log(`변환: ${set.cases.length}케이스 → ${rel(setFile)}${a.mutate ? (mutated ? ` · 변형 ${mutated.cases.length}개(시드 ${seed}, 원본당 최대 ${perCase}개) → ${rel(files[1])}` : " · 변형할 공격 케이스가 없습니다") : ""}`);
@@ -136,6 +249,12 @@ async function main() {
   const env = a.real ? effectiveEnv() : { ...process.env, LLM_PROVIDER: "mock", LLM_API_KEY: "" };
   const llm = getLlm(env);
   if (a.real && llm.adapter.name === "mock") throw new Error("--real인데 쓸 수 있는 API 키가 없습니다(.env의 LLM_API_KEY, 또는 테스트 환경이면 ALLOW_REAL_LLM=1).");
+  // 공격 케이스를 실제 모델에 보내는 실행은 제공사 승인이 있어야 한다
+  const approvalError = redteamApprovalError({ real: a.real, attackCases: attackN });
+  if (approvalError) {
+    console.error(`\n${approvalError}`);
+    process.exit(3);
+  }
   const judgeModel = process.env.JUDGE_MODEL?.trim() || null;
   const judgeSkipped = !judgeModel
     ? "JUDGE_MODEL이 지정되지 않았습니다."
@@ -172,10 +291,7 @@ async function main() {
   }
 
   // ── 4. 켬 / 끔 실행 ──
-  const date = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
-  const stemBase = `${date}${a.real ? "" : "-mock"}-${stem}`;
-  let runId = stemBase;
-  for (let i = 2; ["-on.md", "-off.md", ".run.json", ".report.md"].some((s) => existsSync(path.join(RESULTS, runId + s))); i++) runId = `${stemBase}-${i}`;
+  const runId = uniqueId(`${date}${a.real ? "" : "-mock"}-${stem}`, ["-on.md", "-off.md", ".run.json", ".report.md"]);
   const base = path.join(RESULTS, runId);
   const childEnv = { ...process.env, ...(a.real ? {} : { LLM_PROVIDER: "mock", LLM_API_KEY: "" }) };
   const runChild = (label: string, extra: string[]) => {

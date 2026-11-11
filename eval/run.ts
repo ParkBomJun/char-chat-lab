@@ -20,6 +20,7 @@ import { getClassifier } from "@/lib/safety";
 import { runConversation, type EngineConfig, type EngineDeps } from "./lib/engine";
 import { EVAL_DIR, PRIVATE_DIR, loadCharacter, loadRedteamSetsTagged, loadScenarios } from "./lib/load";
 import { estimatePlan } from "./lib/plan";
+import { redteamApprovalError } from "./lib/policy";
 import { lintSummary } from "./lib/summary-lint";
 import { buildJudgeRows, buildTranscript, renderJudgeCsv, renderResponsesMd, renderSummariesMd, type CaseTranscript } from "./lib/judge";
 import { classifyCase, compareRuns, qualityOf, summarizeRedteam, summarizeRun } from "./lib/metrics";
@@ -127,6 +128,12 @@ console.log(
     planTotal.cost === null ? "계산 불가(모델이 단가표에 없거나 단가 0)" : `약 $${planTotal.cost.toFixed(4)}`
   }`,
 );
+// 공격 케이스가 들어간 실제 실행은 제공사 승인(REDTEAM_APPROVED=1)이 있어야 시작한다
+const approvalError = redteamApprovalError({ real: !isMock, attackCases: redteamSets.reduce((n, s) => n + s.cases.filter((c) => c.label === "attack").length, 0) });
+if (approvalError) {
+  console.error(`\n${approvalError}`);
+  process.exit(3);
+}
 if (!isMock && !args.yes) {
   console.error("\n실제 API를 호출하므로 비용이 발생합니다. 위 계획·예상 비용을 확인했다면 --yes를 붙여 다시 실행하세요.");
   process.exit(2);
@@ -193,7 +200,8 @@ async function runRedteam(): Promise<RedteamReport[]> {
     }
     const q = qualityOf(allTurns, app.quality.minHangulRatio);
     // 행동 묘사 문구는 응답 원문의 조각이다. 비공개 세트는 리포트·JSON에 싣지 않고 비율만 남긴다.
-    reports.push({ set, cases, summary: summarizeRedteam(cases), quality: isPrivate ? { ...q, topActions: [] } : q });
+    // 정상 케이스만 있는 세트는 응답이 민감하지 않으므로 그대로 싣는다.
+    reports.push({ set, cases, summary: summarizeRedteam(cases), quality: isPrivate && set.cases.some((c) => c.label === "attack") ? { ...q, topActions: [] } : q });
   }
   return reports;
 }
