@@ -222,6 +222,13 @@ model ModerationEvent {
 > - (3단계) `UsageLog`에 `usageEstimated Boolean`(제공사 usage가 없어 글자 수로 추정한 행), `blockTokens Json?`(조립기의 블록별 추정 토큰) 추가.
 > - (4단계) 기억 구현 규칙: 최근 대화 = 최신 요약이 덮지 않은 메시지 전부. 원문 턴이 `RECENT_TURNS + SUMMARY_EVERY`(기본 30)가 되면 가장 오래된 `SUMMARY_EVERY`(10)턴을 요약에 합치고 `coversUntilMsg`를 그 마지막 메시지로 옮긴다(턴 경계에서만 끊음). 요약 갱신 사이에는 프롬프트 앞부분이 변하지 않아 캐시가 이어지고, 갱신 시점에만 한 번 깨진다. 요약 호출은 `LLM_CLASSIFIER_MODEL`(없으면 대화 모델), `UsageLog.kind=SUMMARY`.
 > - (5단계) 로어북 매칭 규칙: 최근 `LOREBOOK_SCAN_TURNS`(4)턴의 사용자·캐릭터 메시지(이번 입력 포함)에서 **공백 제거·대소문자 무시 부분 문자열**로 비교(한국어 조사 때문에 단어 경계는 쓰지 않음). 공백 제외 2글자 미만 키워드는 매칭에서 무시하고 등록(seed·7단계 관리자)에서도 거절. 결과는 우선순위 내림차순·id 순으로 고정(출력 안정성). 걸린 항목 id는 `UsageLog.blockTokens`의 `lorebookIds`에 기록.
+> - (6단계) 안전 파이프라인 구현 규칙 — 코드는 `src/lib/safety/`, 규칙 목록은 `src/config/safety-rules.json`(초안, 검토 필요).
+>   - `ModerationEvent.action`에 `strike`(경고 이후 반복 위반) 추가. 판정 기록에는 사용자 원문을 저장하지 않는다(카테고리·점수만).
+>   - 입력: 규칙(위기 > 차단) → 분류기. 정책 위반 입력은 `Message.retracted=true`로 저장(이후 프롬프트·요약·로어북·화면에서 제외), 위기 표현은 사용자 말을 남기고 109 안내(롤플레이 중단, 모델 호출 없음, 흐름 점수 0). 분류기가 `self_harm`으로 판정해도 위기 안내로 처리.
+>   - 출력: 스트리밍 중 규칙 층(누적 텍스트에 적용해 청크 경계 우회 방지, 위기 규칙은 출력에 미적용) → 완료 후 분류기. 차단·검사 실패면 응답을 처음부터 `retracted=true`로 저장하고 `retract` 이벤트로 화면의 말풍선을 안내문으로 교체. 판정 후 저장하므로 회수 대상은 어떤 경로로도 이후 프롬프트에 들어가지 않는다.
+>   - fail closed: 분류기 타임아웃·오류·JSON 스키마 위반은 모두 차단. 입력 단계 실패는 HTTP 503(대화에 아무것도 남기지 않고 재시도 가능), 출력 단계 실패는 회수. 모두 `verdict=ERROR` 이벤트.
+>   - 흐름 감시: 턴 점수 = max(입력 점수, 출력 점수)를 `ModerationEvent(stage=CONVERSATION, category=turn)`로 기록. 마지막 경고/위반 이후 최근 `FLOW_WINDOW_TURNS`(5)턴 평균이 `FLOW_WARN_THRESHOLD`(0.5) 이상이면 경고(최소 `FLOW_MIN_TURNS`(2)턴), 경고 뒤에는 1턴만으로도 위반(strike), `FLOW_STOP_STRIKES`(2)회면 `STOPPED`. 경고·위반이 나면 윈도우를 비워 행동을 고친 사용자가 과거 점수로 연달아 걸리지 않게 한다. 위기·검사 불가 턴은 0점.
+>   - 분류기 호출도 `UsageLog(kind=CLASSIFIER)`로 비용 기록.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

@@ -1,0 +1,43 @@
+{
+  "_note": "규칙 층(키워드·정규식) 초안. 빠르고 싼 1차 필터일 뿐이며 서비스의 안전 기준이므로 반드시 검토·보강할 것. words는 글자 그대로 포함 여부, spaced=true면 3글자 이상 단어에 한해 글자 사이 공백도 허용(\"죽고 싶다\" 같은 띄어쓰기 대응. 2글자 단어는 오탐 때문에 제외). regex는 직접 작성한 정규식(u 플래그, 대소문자 무시). appliesTo의 output 규칙은 캐릭터가 거절·위로하며 쓸 수 있는 단어를 넣으면 오탐이 나므로 명백한 것만 둔다. kind: block=차단, crisis=롤플레이 중단 후 도움 안내(입력에만 적용).",
+  "rules": [
+    {
+      "category": "crisis",
+      "kind": "crisis",
+      "appliesTo": ["input"],
+      "spaced": true,
+      "words": ["자살", "자해", "죽고싶", "죽어버리고싶", "목숨을끊", "스스로목숨", "살기싫", "사라지고싶", "죽을래", "뛰어내리고싶", "손목을긋", "유서를"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "appliesTo": ["input", "output"],
+      "words": ["섹스", "성관계", "포르노", "야동", "자위", "강간", "오럴", "19금"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "appliesTo": ["input"],
+      "words": ["야한이야기", "야한장면", "음란", "애무", "알몸"]
+    },
+    {
+      "category": "violence",
+      "kind": "block",
+      "appliesTo": ["input", "output"],
+      "regex": ["(사람|누구).{0,6}(죽이|살해).{0,6}(방법|법)", "폭탄.{0,8}(만드|제조)", "(토막|시체).{0,4}(내|훼손|유기)"]
+    },
+    {
+      "category": "jailbreak",
+      "kind": "block",
+      "appliesTo": ["input"],
+      "regex": [
+        "이전\\s*(의\\s*)?(모든\\s*)?(지시|명령|지침).{0,6}(무시|잊)",
+        "시스템\\s*프롬프트.{0,8}(보여|알려|출력|공개)",
+        "개발자\\s*모드",
+        "탈옥",
+        "ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions",
+        "\\bDAN\\b"
+      ]
+    }
+  ]
+}

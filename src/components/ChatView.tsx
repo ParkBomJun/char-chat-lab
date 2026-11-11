@@ -9,12 +9,15 @@ export function ChatView({
   conversationId,
   characterName,
   initialMessages,
+  initialStopped,
 }: {
   conversationId: string;
   characterName: string;
   initialMessages: ViewMessage[];
+  initialStopped: boolean;
 }) {
   const [messages, setMessages] = useState<ViewMessage[]>(initialMessages);
+  const [stopped, setStopped] = useState(initialStopped);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +70,20 @@ export function ChatView({
             throw new Error(data.message);
           } else if (frame.event === "done") {
             setMessages((m) => m.map((x) => (x.id === asstId ? { ...x, id: data.messageId } : x)));
+          } else if (frame.event === "retract") {
+            // 출력 검사에 걸린 응답을 회수: 이미 화면에 흘려보낸 말풍선을 안내문으로 교체
+            setMessages((m) =>
+              m.map((x) => (x.id === asstId ? { id: data.noticeId, role: "SYSTEM_NOTICE", content: data.text } : x)),
+            );
+          } else if (frame.event === "blocked") {
+            // 입력이 거절됨: 내 말풍선과 응답 자리를 치우고 안내만 보인다
+            setMessages((m) => [...m.filter((x) => x.id !== userId && x.id !== asstId), { id: data.noticeId, role: "SYSTEM_NOTICE", content: data.text }]);
+          } else if (frame.event === "crisis") {
+            // 위기 안내: 내 말은 남기고 응답 자리만 안내로 교체
+            setMessages((m) => m.map((x) => (x.id === asstId ? { id: data.noticeId, role: "SYSTEM_NOTICE", content: data.text } : x)));
+          } else if (frame.event === "notice") {
+            setMessages((m) => [...m, { id: data.id, role: "SYSTEM_NOTICE", content: data.text }]);
+            if (data.kind === "stopped") setStopped(true);
           }
         }
       }
@@ -74,7 +91,11 @@ export function ChatView({
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         setError(e instanceof Error ? e.message : "오류가 발생했어요.");
       }
-      if (!gotAny) setMessages((m) => m.filter((x) => x.id !== asstId));
+      if (!gotAny) {
+        // 아무것도 못 받았으면 말풍선을 치우고 입력을 되돌려 다시 보낼 수 있게 한다
+        setMessages((m) => m.filter((x) => x.id !== asstId && x.id !== userId));
+        setInput((cur) => cur || content);
+      }
     } finally {
       abortRef.current = null;
       setSending(false);
@@ -93,6 +114,7 @@ export function ChatView({
         <div ref={bottomRef} />
       </div>
       {error && <p className="error chat-error">{error}</p>}
+      {stopped && <p className="chat-error">이 대화는 중단되었어요. 목록에서 새 대화를 시작해 주세요.</p>}
       <form
         className="chat-input"
         onSubmit={(e) => {
@@ -113,12 +135,12 @@ export function ChatView({
           maxLength={2000}
           rows={2}
           placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"
-          disabled={sending}
+          disabled={sending || stopped}
         />
         {sending ? (
           <button type="button" onClick={() => abortRef.current?.abort()}>중지</button>
         ) : (
-          <button type="submit" disabled={!input.trim()}>전송</button>
+          <button type="submit" disabled={!input.trim() || stopped}>전송</button>
         )}
       </form>
     </div>

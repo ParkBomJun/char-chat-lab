@@ -14,6 +14,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
   const conv = await prisma.conversation.findFirst({
     where: { id: conversationId, userId: session.user.id },
     select: {
+      status: true,
       character: { select: { name: true } },
       messages: {
         where: { retracted: false },
@@ -31,7 +32,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
         <strong>{conv.character.name}</strong>
         <span className="who">AI와의 대화입니다</span>
       </header>
-      <ChatView conversationId={conversationId} characterName={conv.character.name} initialMessages={conv.messages} />
+      <ChatView conversationId={conversationId} characterName={conv.character.name} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} />
     </>
   );
 }

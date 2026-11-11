@@ -11,6 +11,9 @@ export type LlmRequest = {
   model: string;
   messages: ChatMessage[];
   maxOutputTokens?: number;
+  temperature?: number;
+  /** 구조화 출력(OpenAI response_format json_schema). 지원하지 않는 제공사는 프롬프트의 JSON 지시와 파서 검증에 의존 */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
   signal?: AbortSignal;
 };
 

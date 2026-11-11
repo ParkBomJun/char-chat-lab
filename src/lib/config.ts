@@ -4,6 +4,9 @@ import { z } from "zod";
 const num = (def: number, min = 0) =>
   z.preprocess((v) => (v === "" || v === undefined ? undefined : v), z.coerce.number().int().min(min).default(def));
 
+const flt = (def: number) =>
+  z.preprocess((v) => (v === "" || v === undefined ? undefined : v), z.coerce.number().min(0).max(1).default(def));
+
 const schema = z.object({
   RECENT_TURNS: num(20, 1),
   SUMMARY_EVERY: num(10, 1),
@@ -12,6 +15,12 @@ const schema = z.object({
   PROMPT_TOKEN_BUDGET: num(6000, 500),
   LOREBOOK_TOKEN_BUDGET: num(800, 0),
   MAX_OUTPUT_TOKENS: num(1024, 16),
+  CLASSIFIER_BLOCK_THRESHOLD: flt(0.8),
+  CLASSIFIER_TIMEOUT_MS: num(8000, 500),
+  FLOW_WINDOW_TURNS: num(5, 1),
+  FLOW_MIN_TURNS: num(2, 1),
+  FLOW_WARN_THRESHOLD: flt(0.5),
+  FLOW_STOP_STRIKES: num(2, 1),
 });
 
 export type AppConfig = {
@@ -22,6 +31,10 @@ export type AppConfig = {
   promptTokenBudget: number;
   lorebookTokenBudget: number;
   maxOutputTokens: number;
+  /** 분류기 score가 이 값 이상이면 verdict와 무관하게 차단 */
+  classifierBlockThreshold: number;
+  classifierTimeoutMs: number;
+  flow: { windowTurns: number; minTurns: number; warnThreshold: number; stopStrikes: number };
 };
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -34,5 +47,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     promptTokenBudget: e.PROMPT_TOKEN_BUDGET,
     lorebookTokenBudget: e.LOREBOOK_TOKEN_BUDGET,
     maxOutputTokens: e.MAX_OUTPUT_TOKENS,
+    classifierBlockThreshold: e.CLASSIFIER_BLOCK_THRESHOLD,
+    classifierTimeoutMs: e.CLASSIFIER_TIMEOUT_MS,
+    flow: {
+      windowTurns: e.FLOW_WINDOW_TURNS,
+      minTurns: e.FLOW_MIN_TURNS,
+      warnThreshold: e.FLOW_WARN_THRESHOLD,
+      stopStrikes: e.FLOW_STOP_STRIKES,
+    },
   };
 }

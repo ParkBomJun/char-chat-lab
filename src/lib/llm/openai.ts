@@ -42,6 +42,10 @@ export class OpenAiCompatAdapter implements LlmAdapter {
           stream: true,
           stream_options: { include_usage: true },
           ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),
+          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          ...(req.jsonSchema
+            ? { response_format: { type: "json_schema", json_schema: { name: req.jsonSchema.name, strict: true, schema: req.jsonSchema.schema } } }
+            : {}),
         }),
         signal,
       });
