@@ -19,6 +19,7 @@ import { evaluateFlow, type FlowConfig, type FlowStatus } from "@/lib/safety/flo
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
 import type { ModEvent } from "@/lib/safety/types";
+import { looksLikeRefusal } from "./metrics";
 import type { CallRecord, Intervention, InterventionKind, InterventionStage, TurnResult } from "./types";
 
 export type SimMessage = { id: string; role: "USER" | "ASSISTANT" | "SYSTEM_NOTICE"; content: string; retracted: boolean };
@@ -36,7 +37,15 @@ export type EngineConfig = {
   flow: FlowConfig;
   /** false면 입력 검사까지만(모델 호출 없음). 안전 규칙·분류기만 빠르게 시험할 때 */
   generate: boolean;
+  /**
+   * false면 앱의 안전 층(입력 규칙·입력 분류기·스트리밍 규칙·출력 분류기·흐름 감시)을 모두 끄고 모델만 부른다(--no-app-safety).
+   * 남는 것: 고정 블록의 안전 지시문·카드 원칙, 제공사/모델 자체 필터. 기본 true(서비스와 같음).
+   */
+  appSafety?: boolean;
 };
+
+/** 제공사/모델의 하드 필터를 알리는 오류 문구(OpenRouter 모더레이션 403, 콘텐츠 정책 등). 모델이 말로 하는 거절은 해당하지 않는다. */
+export const PROVIDER_FILTER_PATTERN = /(moderation|flagged|content[_ -]?(filter|policy)|safety[_ -]?(filter|setting|block)|prohibited[_ -]?content|policy violation)/i;
 
 export type EngineDeps = { adapter: LlmAdapter; chatModel: string; lightModel: string; classifier: Classifier };
 
@@ -144,8 +153,11 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
   if (conv.status === "STOPPED") return { ...result, skipped: true }; // 서비스는 409
 
   // ── [입력 안전 검사] ──
+  const appSafety = cfg.appSafety !== false;
   const t0 = now();
-  const input = await checkInput(userInput, { classifier: deps.classifier, threshold: cfg.classifierThreshold });
+  const input = appSafety
+    ? await checkInput(userInput, { classifier: deps.classifier, threshold: cfg.classifierThreshold })
+    : { outcome: "allow" as const, events: [] as ModEvent[], calls: [] as ClassifyCall[], turnScore: 0 };
   result.inputCheckMs = now() - t0;
   result.calls.push(...input.calls.map(classifierRecord));
   result.interventions.push(...interventionsFromEvents(input.events));
@@ -176,7 +188,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
   conv.add("USER", userInput, false);
 
   if (!cfg.generate) {
-    const f = applyFlow(conv, input.turnScore, cfg.flow);
+    const f = appSafety ? applyFlow(conv, input.turnScore, cfg.flow) : null;
     if (f) result.interventions.push(f);
     return result;
   }
@@ -186,6 +198,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
   const guard = new StreamGuard();
   let usage = null as Awaited<ReturnType<typeof collectText>>["usage"];
   let blockedCategory: string | null = null;
+  let providerFiltered = false;
   const start = now();
   try {
     for await (const ev of deps.adapter.stream({
@@ -197,19 +210,27 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
       if (ev.type === "delta") {
         if (result.ttftMs === null) result.ttftMs = now() - start;
         const check = guard.feed(ev.text);
-        if (check.blocked) {
+        if (appSafety && check.blocked) {
           blockedCategory = check.category;
           upstream.abort();
           break;
         }
-      } else usage = ev.usage;
+      } else {
+        usage = ev.usage;
+        if (ev.meta?.finishReason === "content_filter") providerFiltered = true;
+      }
     }
   } catch (e) {
     if (!blockedCategory) {
-      result.llmError = true;
-      console.error("  [eval] LLM 오류:", e instanceof Error ? e.message : e);
+      if (e instanceof Error && PROVIDER_FILTER_PATTERN.test(e.message)) {
+        providerFiltered = true; // 제공사 필터가 막은 것이지 서비스 장애가 아니다
+      } else {
+        result.llmError = true;
+        console.error("  [eval] LLM 오류:", e instanceof Error ? e.message : e);
+      }
     }
   }
+  if (providerFiltered) result.interventions.push({ stage: "PROVIDER", kind: "provider_filtered", category: null });
   result.totalMs = now() - start;
   const text = guard.text;
 
@@ -217,7 +238,9 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
   if (!result.llmError && text.length > 0) {
     let events: ModEvent[];
     let retracted = false;
-    if (blockedCategory) {
+    if (!appSafety) {
+      events = [];
+    } else if (blockedCategory) {
       events = [streamEvent(true, blockedCategory)];
       outputScore = 1;
       retracted = true;
@@ -233,6 +256,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     result.interventions.push(...interventionsFromEvents(events));
     conv.add("ASSISTANT", text, retracted);
     result.reply = retracted ? null : text;
+    result.refusalLike = looksLikeRefusal(text);
 
     const row = buildUsageRow({
       model: deps.chatModel,
@@ -246,7 +270,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     result.calls.push(toRecord("CHAT", row, deps.chatModel));
   }
 
-  const flow = applyFlow(conv, Math.max(input.turnScore, outputScore), cfg.flow);
+  const flow = appSafety ? applyFlow(conv, Math.max(input.turnScore, outputScore), cfg.flow) : null;
   if (flow) result.interventions.push(flow);
 
   // ── 요약 갱신: 서비스에서는 응답 후 비동기. 여기서는 다음 턴 전에 끝나도록 기다린다. ──

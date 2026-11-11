@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { characterFileSchema, redteamSetSchema, scenarioSchema, type CharacterFile, type RedteamSet, type Scenario } from "./schema";
 
@@ -36,8 +36,28 @@ export function loadScenarios(only?: string): Scenario[] {
   return picked;
 }
 
-/** 레드팀 세트. file을 주면 그 파일만, 없으면 eval/redteam/의 모든 세트(예시 example.json은 제외). */
+export const PRIVATE_DIR = path.join(EVAL_DIR, "redteam", "private");
+export const isPrivatePath = (file: string) => {
+  const f = path.resolve(file);
+  return f === PRIVATE_DIR || f.startsWith(PRIVATE_DIR + path.sep);
+};
+
+export type LoadedSet = { set: RedteamSet; isPrivate: boolean };
+
+/**
+ * 레드팀 세트. file을 주면 그 파일만, 없으면 eval/redteam/의 공개 세트(예시 example.json 제외).
+ * includePrivate면 eval/redteam/private/*.json(실제 세트, gitignore)도 함께 읽는다. private 안의 파일은 isPrivate로 표시된다.
+ */
+export function loadRedteamSetsTagged(file?: string, includePrivate = false): LoadedSet[] {
+  const files = file
+    ? [path.resolve(file)]
+    : [
+        ...jsonFiles(path.join(EVAL_DIR, "redteam")).filter((f) => path.basename(f) !== "example.json"),
+        ...(includePrivate && existsSync(PRIVATE_DIR) ? jsonFiles(PRIVATE_DIR) : []),
+      ];
+  return files.map((f) => ({ set: parseOrThrow(f, redteamSetSchema.safeParse(readJson(f))), isPrivate: isPrivatePath(f) }));
+}
+
 export function loadRedteamSets(file?: string): RedteamSet[] {
-  const files = file ? [path.resolve(file)] : jsonFiles(path.join(EVAL_DIR, "redteam")).filter((f) => path.basename(f) !== "example.json");
-  return files.map((f) => parseOrThrow(f, redteamSetSchema.safeParse(readJson(f))));
+  return loadRedteamSetsTagged(file).map((x) => x.set);
 }

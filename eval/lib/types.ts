@@ -19,8 +19,9 @@ export type CallRecord = {
   unpriced: boolean;
 };
 
-export type InterventionStage = "INPUT_RULE" | "INPUT_CLASSIFIER" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "FLOW";
-export type InterventionKind = "blocked" | "crisis" | "retracted" | "check_failed" | "warned" | "strike" | "stopped";
+export type InterventionStage = "INPUT_RULE" | "INPUT_CLASSIFIER" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "FLOW" | "PROVIDER";
+/** provider_filtered: 제공사/모델의 하드 필터(finish_reason=content_filter, 모더레이션 오류 응답). 모델이 말로 하는 거절은 여기에 포함되지 않는다 */
+export type InterventionKind = "blocked" | "crisis" | "retracted" | "check_failed" | "warned" | "strike" | "stopped" | "provider_filtered";
 
 /** 안전 파이프라인이 개입한 기록(차단·회수·위기 안내·경고·중단). 통과는 기록하지 않는다. */
 export type Intervention = { stage: InterventionStage; kind: InterventionKind; category: string | null };
@@ -43,6 +44,8 @@ export type TurnResult = {
   llmError: boolean;
   blockTokens: BlockTokens | null;
   summaryUpdated: boolean;
+  /** 응답 본문이 거절·화제 전환 문구를 포함(참고용 휴리스틱, 판정에는 쓰지 않는다) */
+  refusalLike?: boolean;
 };
 
 export type { Usage };

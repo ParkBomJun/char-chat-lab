@@ -49,3 +49,6 @@ next-env.d.ts
 
 # 평가 결과 중 mock(가짜 어댑터) 실행분은 의미 없는 수치라 커밋하지 않는다
 eval/results/*-mock.*
+
+# 레드팀 실제 세트(공격 대화 원문)와 그 결과는 저장소에 올리지 않는다. 형식 예시는 eval/redteam/example.json
+eval/redteam/private/

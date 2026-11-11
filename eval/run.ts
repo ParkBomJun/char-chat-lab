@@ -18,7 +18,8 @@ import { renderFixedBlock } from "@/lib/chat/assemble";
 import { estimateTokens } from "@/lib/tokens";
 import { getClassifier } from "@/lib/safety";
 import { runConversation, type EngineConfig, type EngineDeps } from "./lib/engine";
-import { EVAL_DIR, loadCharacter, loadRedteamSets, loadScenarios } from "./lib/load";
+import { EVAL_DIR, PRIVATE_DIR, loadCharacter, loadRedteamSetsTagged, loadScenarios } from "./lib/load";
+import { estimatePlan } from "./lib/plan";
 import { classifyCase, compareRuns, summarizeRedteam, summarizeRun } from "./lib/metrics";
 import { renderReport, type RedteamReport, type ReportMeta, type ScenarioReport } from "./lib/report";
 
@@ -31,6 +32,8 @@ const { values: args, positionals } = parseArgs({
     "input-only": { type: "boolean", default: false },
     "redteam-file": { type: "string" },
     character: { type: "string", default: "eval-garden" },
+    private: { type: "boolean", default: false },
+    "no-app-safety": { type: "boolean", default: false },
     yes: { type: "boolean", default: false },
     out: { type: "string" },
   },
@@ -38,7 +41,7 @@ const { values: args, positionals } = parseArgs({
 
 const what = positionals[0] ?? "all";
 if (!["scenarios", "redteam", "all"].includes(what)) {
-  console.error('사용법: tsx eval/run.ts [scenarios|redteam|all] [--scenario id] [--modes baseline,summary] [--max-turns N] [--input-only] [--redteam-file path] [--yes]');
+  console.error('사용법: tsx eval/run.ts [scenarios|redteam|all] [--scenario id] [--modes baseline,summary] [--max-turns N] [--input-only] [--redteam-file path] [--private] [--no-app-safety] [--yes]');
   process.exit(1);
 }
 const modes = args.modes!.split(",").map((m) => m.trim()).filter(Boolean);
@@ -63,20 +66,52 @@ const baseCfg: EngineConfig = {
   classifierThreshold: app.classifierBlockThreshold,
   flow: app.flow,
   generate: !args["input-only"],
+  appSafety: !args["no-app-safety"],
 };
+if (!baseCfg.appSafety && !baseCfg.generate) {
+  console.error("--no-app-safety는 모델 응답을 보는 실험이라 --input-only와 함께 쓸 수 없습니다(입력 검사가 꺼지면 호출할 것이 없습니다).");
+  process.exit(1);
+}
+if (!baseCfg.appSafety && what === "scenarios") console.log("※ --no-app-safety는 레드팀 실행에서만 의미가 있습니다. 정상 시나리오에서는 안전 층이 꺼진 채 측정됩니다.");
 
 const scenarios = what === "redteam" ? [] : loadScenarios(args.scenario);
-const redteamSets = what === "scenarios" ? [] : loadRedteamSets(args["redteam-file"]);
+const loadedSets = what === "scenarios" ? [] : loadRedteamSetsTagged(args["redteam-file"], args.private);
+const redteamSets = loadedSets.map((x) => x.set);
+const hasPrivate = loadedSets.some((x) => x.isPrivate);
 const cut = <T,>(xs: readonly T[]) => (maxTurns ? xs.slice(0, maxTurns) : xs);
 
 // ── 실행 계획과 비용 확인 ────────────────────────────────────────────────────
 const scenarioTurns = scenarios.reduce((n, s) => n + cut(s.turns).length, 0) * modes.length;
 const redteamTurns = redteamSets.reduce((n, s) => n + s.cases.reduce((m, c) => m + cut(c.turns).length, 0), 0);
-const plannedCalls = (scenarioTurns + redteamTurns) * (baseCfg.generate ? 3 : 1);
+const perTurnCalls = baseCfg.generate ? (baseCfg.appSafety ? 3 : 1) : 1;
+const plannedCalls = (scenarioTurns + redteamTurns) * perTurnCalls;
+const planInput = {
+  generate: baseCfg.generate,
+  appSafety: baseCfg.appSafety !== false,
+  maxOutputTokens: baseCfg.maxOutputTokens,
+  promptTokenBudget: baseCfg.promptTokenBudget,
+  chatModel: llm.chatModel,
+  lightModel: llm.lightModel,
+  table: pricing,
+};
+const redteamChar = what === "scenarios" || redteamSets.length === 0 ? null : loadCharacter(args.character!);
+const plan = estimatePlan({ ...planInput, fixedChars: redteamChar ? renderFixedBlock(redteamChar).length : 0, convs: redteamSets.flatMap((s) => s.cases.map((c) => cut(c.turns))) });
+const scenarioPlans = scenarios.map((s) => estimatePlan({ ...planInput, fixedChars: renderFixedBlock(loadCharacter(s.character)).length, convs: Array.from({ length: modes.length }, () => cut(s.turns)) }));
+const planTotal = {
+  calls: plan.calls + scenarioPlans.reduce((n, p) => n + p.calls, 0),
+  inputTokens: plan.inputTokens + scenarioPlans.reduce((n, p) => n + p.inputTokens, 0),
+  outputTokens: plan.outputTokens + scenarioPlans.reduce((n, p) => n + p.outputTokens, 0),
+  cost: plan.cost === null || scenarioPlans.some((p) => p.cost === null) ? null : plan.cost + scenarioPlans.reduce((n, p) => n + (p.cost ?? 0), 0),
+};
 console.log(`어댑터: ${llm.adapter.name} · 대화 ${llm.chatModel} · 분류기/요약 ${llm.lightModel}`);
-console.log(`계획: 시나리오 ${scenarios.length}개(${modes.join("+")}) ${scenarioTurns}턴, 레드팀 세트 ${redteamSets.length}개 ${redteamTurns}턴 → 최대 약 ${plannedCalls}회 LLM 호출`);
+console.log(`계획: 시나리오 ${scenarios.length}개(${modes.join("+")}) ${scenarioTurns}턴, 레드팀 세트 ${redteamSets.length}개 ${redteamTurns}턴${hasPrivate ? "(비공개 세트 포함)" : ""} → 최대 약 ${plannedCalls}회 LLM 호출${baseCfg.appSafety ? "" : " · 자체 안전 층 OFF(분류기 호출 없음)"}`);
+console.log(
+  `예상(대략, 요약 호출 제외): 호출 약 ${planTotal.calls}회 · 입력 약 ${Math.round(planTotal.inputTokens / 1000).toLocaleString("ko-KR")}K토큰 · 출력 약 ${Math.round(planTotal.outputTokens / 1000).toLocaleString("ko-KR")}K토큰 · 비용 ${
+    planTotal.cost === null ? "계산 불가(모델이 단가표에 없거나 단가 0)" : `약 $${planTotal.cost.toFixed(4)}`
+  }`,
+);
 if (!isMock && !args.yes) {
-  console.error("\n실제 API를 호출하므로 비용이 발생합니다. 계획을 확인했다면 --yes를 붙여 다시 실행하세요.");
+  console.error("\n실제 API를 호출하므로 비용이 발생합니다. 위 계획·예상 비용을 확인했다면 --yes를 붙여 다시 실행하세요.");
   process.exit(2);
 }
 if (isMock) console.log("※ API 키가 없어 mock 어댑터로 실행합니다. 결과 수치는 의미가 없습니다(동작 확인용).");
@@ -125,7 +160,7 @@ async function runRedteam(): Promise<RedteamReport[]> {
     const cases = [];
     for (const c of set.cases) {
       const { results } = await runConversation(character, [], cut(c.turns), deps, baseCfg);
-      const r = classifyCase(c, results);
+      const r = classifyCase(c, results, { appSafety: baseCfg.appSafety !== false });
       cases.push(r);
       console.log(`  ${r.outcome === "success" ? "✓" : r.outcome === "fail" ? "✗" : "?"} ${c.id} [${c.label}→${c.expect}] ${r.firstIntervention ? `${r.firstIntervention.turn}턴 ${r.firstIntervention.stage}/${r.firstIntervention.kind}` : "개입 없음"}`);
     }
@@ -159,6 +194,8 @@ async function main() {
     priced: pricing.models[llm.chatModel] !== undefined && pricing.models[llm.lightModel] !== undefined,
     structuredOutput: process.env.LLM_STRUCTURED_OUTPUT !== "off",
     inputOnly: !baseCfg.generate,
+    appSafety: baseCfg.appSafety !== false,
+    privateRedteam: hasPrivate,
     config: {
       RECENT_TURNS: app.recentTurns,
       SUMMARY_EVERY: app.summaryEvery,
@@ -169,6 +206,7 @@ async function main() {
       CLASSIFIER_BLOCK_THRESHOLD: app.classifierBlockThreshold,
       "FLOW (창/최소/경고/중단)": `${app.flow.windowTurns}/${app.flow.minTurns}/${app.flow.warnThreshold}/${app.flow.stopStrikes}`,
       "턴 수 제한(--max-turns)": maxTurns ?? "없음",
+      "자체 안전 층": baseCfg.appSafety !== false ? "ON" : "OFF(--no-app-safety)",
     },
   };
   if (scenarioReports.length + redteamReports.length === 0) {
@@ -177,14 +215,19 @@ async function main() {
   }
 
   const md = renderReport(meta, scenarioReports, redteamReports);
-  const dir = args.out ? path.resolve(args.out) : path.join(EVAL_DIR, "results");
+  // 비공개 세트가 들어간 실행의 결과는 gitignore된 private/results/에 둔다(공개 결과 폴더로 새지 않게)
+  const dir = args.out ? path.resolve(args.out) : hasPrivate ? path.join(PRIVATE_DIR, "results") : path.join(EVAL_DIR, "results");
   mkdirSync(dir, { recursive: true });
   const date = startedAt.toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
   const stem = `${date}${isMock ? "-mock" : ""}`;
   let file = path.join(dir, `${stem}.md`);
   for (let i = 2; existsSync(file); i++) file = path.join(dir, `${stem}-${i}.md`);
   writeFileSync(file, md, "utf8");
-  writeFileSync(file.replace(/\.md$/, ".json"), JSON.stringify({ meta, scenarios: scenarioReports, redteam: redteamReports }, null, 2), "utf8");
+  // 비공개 세트는 JSON에서도 공격 대화 원문(turns)을 뺀다
+  const redactedRedteam = redteamReports.map((r, i) =>
+    loadedSets[i]?.isPrivate ? { ...r, set: { ...r.set, cases: r.set.cases.map((c) => ({ ...c, turns: c.turns.map(() => "(비공개)") })) } } : r,
+  );
+  writeFileSync(file.replace(/\.md$/, ".json"), JSON.stringify({ meta, scenarios: scenarioReports, redteam: redactedRedteam }, null, 2), "utf8");
   console.log(`\n결과 저장: ${path.relative(process.cwd(), file)} (+ .json)`);
 }
 

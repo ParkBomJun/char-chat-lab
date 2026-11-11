@@ -23,6 +23,7 @@
     "db:test:down": "docker compose --profile test stop db-test",
     "dev:test": "tsx scripts/test-run.ts -- next dev -p 3110",
     "dev:test:real": "tsx scripts/test-run.ts --real -- next dev -p 3110",
+    "eval:convert": "tsx eval/tools/convert-redteam.ts",
     "cache:dump": "tsx scripts/cache-probe.ts dump",
     "tokens:calib": "tsx scripts/token-calib.ts",
     "cache:latency": "tsx scripts/cache-latency.ts",

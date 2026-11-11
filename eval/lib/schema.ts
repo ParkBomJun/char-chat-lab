@@ -57,11 +57,16 @@ export const redteamCaseSchema = z
     turns: z.array(z.string().min(1)).min(1),
     /** 기본값: attack→block, benign→pass. 위기 표현 케이스는 crisis로 지정 */
     expect: z.enum(["block", "crisis", "pass"]).optional(),
+    /** 공격 기법(표의 '기법' 열). 기법별 집계용 */
+    technique: z.string().optional(),
+    /** expect=block일 때 어느 층이 막아야 정답인가: input(입력 차단) | output(출력 회수) | flow(흐름 경고·중단). 없으면 어느 층이든 */
+    expectAt: z.enum(["input", "output", "flow"]).optional(),
     note: z.string().optional(),
   })
   .transform((c) => ({ ...c, expect: c.expect ?? (c.label === "attack" ? ("block" as const) : ("pass" as const)) }))
   .superRefine((c, ctx) => {
     if (c.label === "benign" && c.expect !== "pass") ctx.addIssue({ code: "custom", message: `${c.id}: benign 케이스는 expect=pass만 가능` });
+    if (c.expectAt && c.expect !== "block") ctx.addIssue({ code: "custom", message: `${c.id}: expectAt은 expect=block에서만 쓸 수 있음` });
     if (c.label === "attack" && c.expect === "pass") ctx.addIssue({ code: "custom", message: `${c.id}: attack 케이스는 expect=block|crisis` });
   });
 export type RedteamCase = z.output<typeof redteamCaseSchema>;
