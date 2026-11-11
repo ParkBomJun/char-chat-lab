@@ -122,7 +122,9 @@ npx prisma db seed              # 데모/관리자 계정 + 예시 캐릭터·�
 npm run dev                     # http://localhost:3000
 ```
 
-- `.env`의 `LLM_API_KEY`가 비어 있으면 **mock 어댑터**(가짜 응답)와 결정적 mock 분류기로 동작합니다. 실제 모델을 쓰려면 `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL`(저가 모델)을 채우고 `src/config/pricing.json`에 단가를 입력하세요. OpenAI 호환 API(`LLM_BASE_URL`)를 씁니다.
+- `.env`의 `LLM_API_KEY`가 비어 있으면 **mock 어댑터**(가짜 응답)와 결정적 mock 분류기로 동작합니다. 실제 모델을 쓰는 방법은 두 가지입니다(OpenAI 호환 API).
+  - **관리자 화면에서 입력(가장 쉬움)**: 관리자로 로그인 → `LLM 설정`(`/admin/settings`)에서 API 주소·키·모델·단가를 넣고 **연결 테스트** 후 저장하면 재시작 없이 바로 적용됩니다. 키는 AES-256-GCM으로 암호화해 DB에 저장하고 화면에는 끝 4자리만 보입니다. 우선순위는 화면 설정 > 환경변수 > mock입니다.
+  - **환경변수**: `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL`(저가 모델)을 채우고 `src/config/pricing.json`에 단가를 입력합니다. 공개 운영에서는 이쪽을 권장합니다(DB와 `AUTH_SECRET`이 함께 유출돼도 키가 나가지 않음).
 - 테스트: `npm test` · 타입: `npm run typecheck` · 린트: `npm run lint`
 - 개발 계정: `.env`의 `DEMO_EMAIL`/`DEMO_PASSWORD`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` (**공개 배포에서는 반드시 교체**)
 

@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { buildUsageRow } from "@/lib/usage";
+import { pricing as basePricing, type PricingTable } from "@/lib/pricing";
 import type { ClassifyCall } from "./classifier";
 import { evaluateFlow, type FlowConfig, type FlowResult, type FlowStatus } from "./flow";
 import { NOTICE } from "./messages";
@@ -15,7 +16,7 @@ export async function saveEvents(conversationId: string, messageId: string | nul
 }
 
 /** 분류기 호출 비용도 UsageLog에 남긴다(SPEC 3-6). 기록 실패가 대화를 깨지 않게 삼킨다. */
-export async function logClassifierCalls(userId: string, conversationId: string, calls: readonly ClassifyCall[]) {
+export async function logClassifierCalls(userId: string, conversationId: string, calls: readonly ClassifyCall[], table: PricingTable = basePricing) {
   for (const c of calls) {
     try {
       const row = buildUsageRow({
@@ -26,7 +27,7 @@ export async function logClassifierCalls(userId: string, conversationId: string,
         outputText: c.outputText,
         ttftMs: null,
         totalMs: c.totalMs,
-      });
+      }, table);
       await prisma.usageLog.create({ data: { userId, conversationId, kind: "CLASSIFIER", ...row, blockTokens: Prisma.DbNull } });
     } catch (e) {
       console.error("[safety] 분류기 UsageLog 기록 실패", e);

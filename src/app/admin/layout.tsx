@@ -13,6 +13,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin">요약</Link>
           <Link href="/admin/moderation">판정 로그</Link>
           <Link href="/admin/characters">캐릭터</Link>
+          <Link href="/admin/settings">LLM 설정</Link>
         </nav>
         <span className="who">관리자 {admin.email}</span>
       </header>

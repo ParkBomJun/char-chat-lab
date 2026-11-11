@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { loadConfig } from "@/lib/config";
-import { getLlm } from "@/lib/llm";
+import { resolveRuntime } from "@/lib/llm/runtime";
 import { collectText } from "@/lib/llm/collect";
 import { estimateTokens } from "@/lib/tokens";
 import { buildUsageRow } from "@/lib/usage";
@@ -19,7 +19,8 @@ const isUniqueViolation = (e: unknown) => typeof e === "object" && e !== null &&
  */
 export async function updateSummaryForConversation(conversationId: string, userId: string): Promise<SummaryOutcome> {
   const config = loadConfig();
-  const { adapter, lightModel } = getLlm();
+  const rt = await resolveRuntime();
+  const { adapter, lightModel } = rt.llm;
   let promptTokens = 0;
 
   return runSummaryUpdate(
@@ -69,7 +70,7 @@ export async function updateSummaryForConversation(conversationId: string, userI
           outputText,
           ttftMs: null,
           totalMs,
-        });
+        }, rt.pricing);
         await prisma.usageLog.create({ data: { userId, conversationId, kind: "SUMMARY", ...row, blockTokens: Prisma.DbNull } });
       },
 

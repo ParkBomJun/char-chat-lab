@@ -174,3 +174,10 @@ model RateLimitEvent {
 
   @@index([scope, key, createdAt])
 }
+
+/// 관리자 화면에서 바꾸는 런타임 설정(LLM 키·모델·단가). 값은 JSON 문자열이며 API 키는 암호화되어 들어간다.
+model AppSetting {
+  key       String   @id // 예: "llm"
+  value     String
+  updatedAt DateTime @updatedAt
+}

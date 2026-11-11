@@ -48,7 +48,7 @@ cp .env.example .env.production
 | `TRUST_PROXY_HOPS` | 권장 | 앞단 프록시 개수(기본 1). XFF의 오른쪽에서 N번째를 클라이언트 IP로 사용 |
 | `DEMO_EMAIL` / `DEMO_PASSWORD` | ✓ | 공개 데모 계정. 비밀번호는 `.env.example` 값이면 안 됨 |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | ✓ | 관리자 계정(데모와 다른 비밀번호) |
-| `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL` | 실서비스 시 | 비면 mock 어댑터(가짜 응답). 분류기·요약용은 저가 모델 |
+| `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL` | 실서비스 시 | 비면 mock 어댑터(가짜 응답). 분류기·요약용은 저가 모델. **운영에서는 이 환경변수 방식을 권장**합니다. 관리자 화면(`/admin/settings`)에서 저장한 설정은 DB에 암호화되어 저장되며 환경변수보다 우선합니다 — 공개 배포에서는 그 화면에서 키를 저장하지 않는 편이 안전합니다 |
 | `LLM_BASE_URL` | | OpenAI 호환 주소(기본 OpenAI) |
 | `DAILY_MESSAGE_LIMIT` | | 사용자당 하루 메시지 수(기본 50). 비용 방어선이므로 제공사의 월 한도도 함께 설정 |
 | `CONTACT_EMAIL` | 권장 | `/privacy` 페이지의 삭제 요청 연락처 |

@@ -4,14 +4,13 @@ import { auth } from "@/auth";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { loadConfig } from "@/lib/config";
-import { getLlm } from "@/lib/llm";
+import { resolveRuntime } from "@/lib/llm/runtime";
 import { LlmError, type Usage } from "@/lib/llm/types";
 import { assemblePrompt } from "@/lib/chat/assemble";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
 import { updateSummaryForConversation } from "@/lib/memory/db";
 import { matchLorebook } from "@/lib/lorebook/match";
-import { getClassifier } from "@/lib/safety";
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
 import { NOTICE } from "@/lib/safety/messages";
@@ -70,7 +69,8 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     );
   }
 
-  const classifier = getClassifier();
+  const rt = await resolveRuntime(); // 관리자 화면 설정 > 환경변수 > mock
+  const classifier = rt.classifier;
   const threshold = config.classifierBlockThreshold;
 
   // ── [입력 안전 검사] 차단이면 모델을 부르지 않는다 ──────────────────────────
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
       select: { id: true },
     });
     await saveEvents(conversationId, userMsg.id, input.events);
-    await logClassifierCalls(userId, conversationId, input.calls);
+    await logClassifierCalls(userId, conversationId, input.calls, rt.pricing);
     const text = crisis ? NOTICE.crisis : NOTICE.inputBlocked;
     const noticeId = await saveNotice(conversationId, text);
     const flow = await applyFlow(conversationId, input.turnScore, config.flow);
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     select: { id: true },
   });
   await saveEvents(conversationId, userMsg.id, input.events);
-  await logClassifierCalls(userId, conversationId, input.calls);
+  await logClassifierCalls(userId, conversationId, input.calls, rt.pricing);
 
   // 로어북: 최근 M턴(이번 입력 포함)에서 키워드가 나온 활성 항목만. (SPEC 3-4)
   const entries = await prisma.lorebookEntry.findMany({
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     lorebookTokenBudget: config.lorebookTokenBudget,
   });
 
-  const { adapter, chatModel } = getLlm();
+  const { adapter, chatModel } = rt.llm;
 
   // 응답을 다 보낸 뒤 실행된다(응답 속도 보호). 서버리스에서도 끊기지 않도록 after() 사용.
   after(async () => {
@@ -232,7 +232,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
           select: { id: true },
         });
         await saveEvents(conversationId, saved.id, events);
-        await logClassifierCalls(userId, conversationId, calls);
+        await logClassifierCalls(userId, conversationId, calls, rt.pricing);
 
         if (retractNotice) {
           const noticeId = await saveNotice(conversationId, retractNotice);
@@ -252,7 +252,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             outputText: text,
             ttftMs,
             totalMs: Date.now() - startedAt,
-          });
+          }, rt.pricing);
           await prisma.usageLog.create({
             data: { userId, conversationId, kind: "CHAT", ...row, blockTokens: row.blockTokens ?? Prisma.DbNull },
           });

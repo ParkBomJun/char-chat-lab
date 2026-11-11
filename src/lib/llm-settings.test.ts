@@ -1,0 +1,99 @@
+import { describe, expect, it } from "vitest";
+import { getLlm } from "@/lib/llm";
+import { maskKey, mergeLlmEnv, mergePricing, parseLlmForm, redact, toSettings, validateBaseUrl, type LlmSettings } from "./llm-settings";
+
+const S: LlmSettings = { baseUrl: "https://api.example.com/v1", apiKey: "sk-test-1234567890", chatModel: "big", classifierModel: "small", structuredOutput: true, pricing: {} };
+const fd = (o: Record<string, string>) => {
+  const f = new FormData();
+  for (const [k, v] of Object.entries(o)) f.set(k, v);
+  return f;
+};
+const base = { baseUrl: "https://api.example.com/v1", apiKey: "sk-abc", chatModel: "big", classifierModel: "small" };
+
+describe("mergeLlmEnv", () => {
+  it("설정이 없으면 환경변수 그대로, mock", () => {
+    expect(getLlm(mergeLlmEnv({}, null)).adapter.name).toBe("mock");
+  });
+  it("DB 설정이 환경변수를 덮어쓰고 실제 어댑터·모델이 된다", () => {
+    const llm = getLlm(mergeLlmEnv({ LLM_API_KEY: "env-key", LLM_CHAT_MODEL: "env-model" }, S));
+    expect(llm.adapter.name).toBe("openai-compat");
+    expect(llm.chatModel).toBe("big");
+    expect(llm.lightModel).toBe("small");
+  });
+  it("★ DB에 키가 있으면 환경변수의 LLM_PROVIDER=mock은 무시(넣은 키가 안 먹는 혼란 방지)", () => {
+    expect(getLlm(mergeLlmEnv({ LLM_PROVIDER: "mock" }, S)).adapter.name).toBe("openai-compat");
+  });
+  it("분류기 모델이 비어 있으면 대화 모델을 쓴다", () => {
+    expect(getLlm(mergeLlmEnv({}, { ...S, classifierModel: "" })).lightModel).toBe("big");
+  });
+  it("구조화 출력 토글이 환경변수 규칙(off)으로 전달된다", () => {
+    expect(mergeLlmEnv({}, { ...S, structuredOutput: false }).LLM_STRUCTURED_OUTPUT).toBe("off");
+    expect(mergeLlmEnv({}, S).LLM_STRUCTURED_OUTPUT).toBe("on");
+  });
+});
+
+describe("마스킹·가리기", () => {
+  it("키는 끝 4자리만 보인다", () => {
+    expect(maskKey("sk-test-1234567890")).toBe("••••7890");
+    expect(maskKey("short")).toBe("••••");
+    expect(maskKey(null)).toBeNull();
+  });
+  it("★ 오류 메시지에서 키 원문과 키처럼 생긴 문자열을 가린다", () => {
+    const r = redact("401 Incorrect API key provided: sk-test-1234567890. Bearer abcdefghij1234", "sk-test-1234567890");
+    expect(r).not.toContain("1234567890");
+    expect(r).not.toContain("abcdefghij1234");
+    expect(redact("x".repeat(500), null).length).toBeLessThan(260);
+  });
+});
+
+describe("validateBaseUrl", () => {
+  it("https와 localhost http만 허용", () => {
+    expect(validateBaseUrl("https://api.openai.com/v1/")).toEqual({ ok: true, url: "https://api.openai.com/v1" });
+    expect(validateBaseUrl("http://localhost:4010/v1")).toMatchObject({ ok: true });
+    expect(validateBaseUrl("http://127.0.0.1:8080")).toMatchObject({ ok: true });
+  });
+  it("★ 외부 http(키가 평문 전송)·잘못된 형식·계정 정보 포함은 거절", () => {
+    expect(validateBaseUrl("http://api.example.com/v1")).toMatchObject({ ok: false });
+    expect(validateBaseUrl("not a url")).toMatchObject({ ok: false });
+    expect(validateBaseUrl("https://user:pw@api.example.com")).toMatchObject({ ok: false });
+    expect(validateBaseUrl("ftp://x.com")).toMatchObject({ ok: false });
+  });
+});
+
+describe("parseLlmForm / toSettings", () => {
+  it("정상 입력: 단가 빈 값은 0, 체크박스 on", () => {
+    const r = parseLlmForm(fd({ ...base, chatIn: "2.5", chatOut: "10", structuredOutput: "on" }));
+    expect(r).toMatchObject({ ok: true, data: { chatModel: "big", structuredOutput: true, chatPrice: { inputPer1M: 2.5, cachedInputPer1M: 0, outputPer1M: 10 } } });
+  });
+  it("대화 모델 누락·공백 포함·잘못된 단가·음수 거절", () => {
+    expect(parseLlmForm(fd({ ...base, chatModel: "" }))).toMatchObject({ ok: false });
+    expect(parseLlmForm(fd({ ...base, chatModel: "my model" }))).toMatchObject({ ok: false });
+    expect(parseLlmForm(fd({ ...base, chatIn: "abc" }))).toMatchObject({ ok: false });
+    expect(parseLlmForm(fd({ ...base, clsOut: "-1" }))).toMatchObject({ ok: false });
+  });
+  it("분류기 모델은 비워도 된다", () => {
+    expect(parseLlmForm(fd({ ...base, classifierModel: "" }))).toMatchObject({ ok: true });
+  });
+  it("저장 형식: 분류기가 다른 모델이면 두 모델의 단가를, 같거나 비면 대화 모델 단가만", () => {
+    const p = (o: Record<string, string>) => {
+      const r = parseLlmForm(fd({ ...base, chatIn: "1", clsIn: "0.1", ...o }));
+      if (!r.ok) throw new Error(r.error);
+      return toSettings(r.data, "k").pricing;
+    };
+    expect(Object.keys(p({}))).toEqual(["big", "small"]);
+    expect(p({}).small.inputPer1M).toBe(0.1);
+    expect(Object.keys(p({ classifierModel: "" }))).toEqual(["big"]);
+    expect(Object.keys(p({ classifierModel: "big" }))).toEqual(["big"]);
+  });
+});
+
+describe("mergePricing", () => {
+  it("파일 단가 위에 DB 단가를 덮어쓴다", () => {
+    const t = mergePricing(
+      { default: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 }, models: { a: { inputPer1M: 1, cachedInputPer1M: 1, outputPer1M: 1 } } },
+      { b: { inputPer1M: 2, cachedInputPer1M: 2, outputPer1M: 2 }, a: { inputPer1M: 9, cachedInputPer1M: 9, outputPer1M: 9 } },
+    );
+    expect(Object.keys(t.models).sort()).toEqual(["a", "b"]);
+    expect(t.models.a.inputPer1M).toBe(9);
+  });
+});
