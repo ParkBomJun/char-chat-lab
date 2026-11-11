@@ -1,8 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
+// 스키마를 바꾸면 SPEC.md 4장도 같이 고친다.
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +6,159 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Tier {
+  FREE
+  PRO
+}
+
+enum ConvStatus {
+  ACTIVE
+  WARNED
+  STOPPED
+}
+
+enum MsgRole {
+  USER
+  ASSISTANT
+  SYSTEM_NOTICE
+}
+
+enum UsageKind {
+  CHAT
+  SUMMARY
+  CLASSIFIER
+}
+
+enum ModStage {
+  INPUT
+  OUTPUT_STREAM
+  OUTPUT_FINAL
+  CONVERSATION
+}
+
+enum ModLayer {
+  RULE
+  CLASSIFIER
+}
+
+enum Verdict {
+  ALLOW
+  BLOCK
+  ERROR
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(USER)
+  tier          Tier           @default(FREE) // 2단계 라우팅용
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+}
+
+model Character {
+  id            String          @id @default(cuid())
+  name          String
+  tagline       String
+  persona       String // 성격·배경
+  speechStyle   String // 말투 규칙
+  exampleDialog String // 예시 대화
+  greeting      String // 첫 인사
+  isPublished   Boolean         @default(true)
+  lorebook      LorebookEntry[]
+  conversations Conversation[]
+  createdAt     DateTime        @default(now())
+}
+
+model LorebookEntry {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  keywords    String[]
+  content     String
+  priority    Int       @default(0)
+  enabled     Boolean   @default(true)
+
+  @@index([characterId])
+}
+
+model Conversation {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  characterId String
+  character   Character       @relation(fields: [characterId], references: [id])
+  status      ConvStatus      @default(ACTIVE)
+  riskScore   Float           @default(0) // 대화 흐름 감시 누적 점수
+  messages    Message[]
+  summaries   MemorySummary[]
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MsgRole
+  content        String
+  retracted      Boolean      @default(false) // 출력 검사로 회수된 경우
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model MemorySummary {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  content        String
+  coversUntilMsg String // 어느 메시지까지 요약했는지 (Message.id)
+  version        Int
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, version])
+}
+
+model UsageLog {
+  id                String    @id @default(cuid())
+  userId            String
+  conversationId    String
+  kind              UsageKind
+  model             String
+  inputTokens       Int
+  cachedInputTokens Int       @default(0)
+  outputTokens      Int
+  estCost           Decimal
+  ttftMs            Int? // 첫 토큰까지
+  totalMs           Int
+  createdAt         DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([conversationId])
+}
+
+model ModerationEvent {
+  id             String   @id @default(cuid())
+  conversationId String
+  messageId      String?
+  stage          ModStage
+  layer          ModLayer
+  verdict        Verdict
+  category       String?
+  score          Float?
+  action         String // none | blocked | retracted | warned | stopped | crisis_notice
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([stage, verdict])
 }

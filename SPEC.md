@@ -121,7 +121,7 @@ model User {
   email        String   @unique
   passwordHash String
   role         Role     @default(USER)   // USER | ADMIN
-  tier         Tier     @default(FREE)   // 2단계 라우팅용
+  tier         Tier     @default(FREE)   // FREE | PRO, 2단계 라우팅용
   createdAt    DateTime @default(now())
   conversations Conversation[]
 }
@@ -213,6 +213,13 @@ model ModerationEvent {
 ```
 
 필요하면 enum과 인덱스는 구현하면서 정리한다. 스키마를 바꾸면 이 문서도 같이 고친다.
+
+> **구현 반영 (1단계)** — 실제 스키마는 `prisma/schema.prisma`. 위 초안과 다른 점:
+> - `Tier`는 `FREE | PRO`. 모든 enum 정의, 조회용 인덱스(`Message(conversationId, createdAt)`, `UsageLog(userId, createdAt)` 등) 추가.
+> - 부모 삭제 시 자식도 삭제(`onDelete: Cascade`): User→Conversation, Conversation→Message/MemorySummary, Character→LorebookEntry. (UsageLog·ModerationEvent는 분석용이라 관계 없이 id만 보관)
+> - `MemorySummary`에 `@@unique([conversationId, version])`. `coversUntilMsg`는 `Message.id`.
+> - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
+> - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 
 ---
 
