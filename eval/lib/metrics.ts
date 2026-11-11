@@ -1,5 +1,11 @@
 import type { CallRecord, Intervention, InterventionStage, TurnResult } from "./types";
 import type { RedteamCase } from "./schema";
+import { summarizeQuality, type QualitySummary } from "@/lib/quality/summary";
+
+export const DEFAULT_MIN_HANGUL_RATIO = 0.9;
+/** 전달된 응답들의 품질 지표 요약(관리자 화면과 같은 계산) */
+export const qualityOf = (turns: readonly TurnResult[], minHangulRatio = DEFAULT_MIN_HANGUL_RATIO): QualitySummary =>
+  summarizeQuality(turns.flatMap((t) => (t.quality ? [t.quality] : [])), minHangulRatio);
 
 // ── 기초 통계 ────────────────────────────────────────────────────────────────
 export const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
@@ -56,11 +62,13 @@ export type RunSummary = {
   interventions: Intervention[];
   /** 턴별 대화 입력 토큰(응답이 생성된 턴만, 그래프용) */
   inputByTurn: { turn: number; tokens: number }[];
+  /** 전달된 응답의 품질 지표 요약 */
+  quality: QualitySummary;
 };
 
 const byKind = (calls: CallRecord[], k: CallRecord["kind"]) => calls.filter((c) => c.kind === k);
 
-export function summarizeRun(turns: readonly TurnResult[]): RunSummary {
+export function summarizeRun(turns: readonly TurnResult[], minHangulRatio = DEFAULT_MIN_HANGUL_RATIO): RunSummary {
   const calls = turns.flatMap((t) => t.calls);
   const chat = byKind(calls, "CHAT");
   const summary = byKind(calls, "SUMMARY");
@@ -105,6 +113,7 @@ export function summarizeRun(turns: readonly TurnResult[]): RunSummary {
       const c = t.calls.find((x) => x.kind === "CHAT");
       return c ? [{ turn: t.index + 1, tokens: c.inputTokens }] : [];
     }),
+    quality: qualityOf(turns, minHangulRatio),
   };
 }
 

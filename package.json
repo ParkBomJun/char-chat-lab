@@ -27,6 +27,7 @@
     "eval:judge": "tsx eval/tools/judge-report.ts",
     "eval:convert": "tsx eval/tools/convert-redteam.ts",
     "redteam:all": "tsx eval/tools/redteam-all.ts",
+    "metrics:backfill": "tsx scripts/metrics-backfill.ts",
     "cache:dump": "tsx scripts/cache-probe.ts dump",
     "tokens:calib": "tsx scripts/token-calib.ts",
     "cache:latency": "tsx scripts/cache-latency.ts",

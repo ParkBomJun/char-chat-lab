@@ -19,6 +19,7 @@ import { evaluateFlow, type FlowConfig, type FlowStatus } from "@/lib/safety/flo
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
 import { PROVIDER_FILTER_PATTERN } from "@/lib/safety/failure";
+import { computeResponseQuality } from "@/lib/quality/metrics";
 import type { ModEvent } from "@/lib/safety/types";
 import { looksLikeRefusal } from "./metrics";
 import type { CallRecord, Intervention, InterventionKind, InterventionStage, TurnResult } from "./types";
@@ -269,6 +270,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     result.reply = retracted ? null : text;
     result.rawReply = text;
     result.refusalLike = looksLikeRefusal(text);
+    if (!retracted) result.quality = computeResponseQuality(text); // 서비스와 같이 회수된 응답은 지표에서 뺀다
 
     const row = buildUsageRow({
       model: deps.chatModel,

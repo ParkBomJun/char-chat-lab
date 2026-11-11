@@ -1,4 +1,6 @@
-import { LAYERS, type Comparison, type GroupRow, type Layer, type Rate, type RedteamSummary, type RunSummary, type CaseResult } from "./metrics";
+import { SCRIPT_LABEL } from "@/lib/quality/metrics";
+import { MANY_PARAGRAPHS_OVER, type QualitySummary } from "@/lib/quality/summary";
+import { DEFAULT_MIN_HANGUL_RATIO, LAYERS, type Comparison, type GroupRow, type Layer, type Rate, type RedteamSummary, type RunSummary, type CaseResult } from "./metrics";
 import type { InterventionStage } from "./types";
 import type { RedteamSet, Scenario } from "./schema";
 
@@ -28,7 +30,7 @@ export type ScenarioReport = {
   withSummary: RunSummary | null;
   comparison: Comparison | null;
 };
-export type RedteamReport = { set: RedteamSet; cases: CaseResult[]; summary: RedteamSummary };
+export type RedteamReport = { set: RedteamSet; cases: CaseResult[]; summary: RedteamSummary; /** 전달된 응답의 품질 지표 요약 */ quality?: QualitySummary };
 
 // ── 서식 ─────────────────────────────────────────────────────────────────────
 const n0 = (v: number | null) => (v === null ? "—" : Math.round(v).toLocaleString("ko-KR"));
@@ -115,6 +117,34 @@ const DEFINITIONS = `## 측정 정의
 - **검사 장애**: 분류기 실패(fail closed)로 개입만 있고 판단할 근거가 없는 케이스는 비율 계산에서 빼고 따로 센다.
 - 신뢰구간은 Wilson 95%. 표본이 수십 건 이하면 구간이 넓다는 점을 감안해 읽을 것.`;
 
+const qPct = (x: { k: number; rate: number | null }) => (x.rate === null ? "—" : `${pct(x.rate)} (${x.k})`);
+const qCells = (q: QualitySummary | null | undefined): string[] =>
+  !q || q.n === 0
+    ? ["0", "—", "—", "—", "—", "—", "—"]
+    : [
+        String(q.n),
+        qPct(q.belowHangul),
+        q.foreign.k ? `${qPct(q.foreign)} — ${Object.entries(q.foreign.byScript).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${SCRIPT_LABEL[k] ?? k} ${v}`).join(", ")}` : qPct(q.foreign),
+        q.avgLength === null ? "—" : `${Math.round(q.avgLength).toLocaleString("ko-KR")}자`,
+        qPct(q.manyParagraphs),
+        qPct(q.endsWithQuestion),
+        // 비공개 세트는 실행기가 문구를 지우고 넘긴다(응답 원문 조각이라 리포트에 싣지 않는다)
+        q.topActions.length ? q.topActions.map((a) => `${a.phrase.replace(/\|/g, "/")} ${pct(a.rate, 0)}`).join(" · ") : q.withAction.k ? `문구 생략(비공개 세트) · 행동 묘사가 있는 응답 ${qPct(q.withAction)}` : "없음",
+      ];
+
+/** 응답 품질 지표 요약 표(서비스의 ResponseMetric과 같은 계산, 모델 호출 없음). 행마다 이름과 요약을 받는다. */
+export function qualitySection(rows: [string, QualitySummary | null | undefined][]): string[] {
+  const min = rows.map(([, q]) => q?.minHangulRatio).find((v) => v !== undefined) ?? DEFAULT_MIN_HANGUL_RATIO;
+  return [
+    "**응답 품질 지표** (전달된 응답만, 회수된 응답 제외)",
+    "",
+    table(
+      ["구분", "응답 수", `외국어 섞임(한글 비율 ${Math.round(min * 100)}% 미만)`, "한글·라틴 외 문자 섞임", "평균 길이", `문단 ${MANY_PARAGRAPHS_OVER}개 초과`, "질문으로 끝남", "자주 나온 행동 묘사 상위 5개(나온 응답 비율)"],
+      rows.map(([name, q]) => [name, ...qCells(q)]),
+    ),
+  ];
+}
+
 function scenarioSection(r: ScenarioReport): string {
   const { scenario: s, engineConfig: c } = r;
   const out: string[] = [
@@ -172,6 +202,8 @@ function scenarioSection(r: ScenarioReport): string {
       out.push("", `첫 턴 입력 토큰(제공사 기준): ${n0(pick(b, 1))} — OpenAI 계열 자동 캐시는 약 1024토큰 이상의 동일한 접두사부터 적용되므로, 이 값이 1024 미만이면 캐시가 걸릴 수 없습니다.`);
     }
   }
+
+  out.push("", ...qualitySection([["요약 없음", b?.quality], ["요약 적용", w?.quality]]));
 
   // 정상 시나리오의 안전 개입 = 오탐
   const ivs = [["요약 없음", b], ["요약 적용", w]].flatMap(([mode, run]) =>
@@ -297,6 +329,8 @@ function redteamSection(r: RedteamReport): string {
   }
 
   out.push("", ...groupSection("범주별", s.categoryTable), "", ...groupSection("기법별", s.techniqueTable), "", ...layerSection(s), "", ...scoreSection(s), "", ...decisionSourceSection(s), "", ...latencySection(s));
+
+  if (r.quality) out.push("", ...qualitySection([["전체 케이스", r.quality]]));
 
   const misses = r.cases.filter((c) => c.outcome === "fail");
   out.push("", `**기대와 다르게 동작한 케이스(${misses.length}건)** — 공격 통과 또는 정상 대화 차단`);

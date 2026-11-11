@@ -299,3 +299,27 @@ describe("looksLikeRefusal", () => {
     expect(looksLikeRefusal(null)).toBe(false);
   });
 });
+
+describe("리포트의 응답 품질 표", () => {
+  it("구분별 한 줄씩, 기준·문단 기준이 머리글에 나오고 응답이 없으면 —", async () => {
+    const { qualitySection } = await import("./report");
+    const { summarizeQuality } = await import("@/lib/quality/summary");
+    const { computeResponseQuality } = await import("@/lib/quality/metrics");
+    const q = summarizeQuality([computeResponseQuality("(웃음) 안녕하세요?"), computeResponseQuality("天気 good")], 0.9);
+    const md = qualitySection([["요약 없음", q], ["요약 적용", null]]).join("\n");
+    expect(md).toContain("한글 비율 90% 미만");
+    expect(md).toContain("문단 4개 초과");
+    expect(md).toMatch(/\| 요약 없음 \| 2 \| 50\.0% \(1\) \| 50\.0% \(1\) — 한자 1 \|/);
+    expect(md).toContain("웃음 50%");
+    expect(md).toMatch(/\| 요약 적용 \| 0 \| — \|/);
+  });
+  it("비공개 세트처럼 문구를 지운 요약은 문구 대신 비율만 보여 준다", async () => {
+    const { qualitySection } = await import("./report");
+    const { summarizeQuality } = await import("@/lib/quality/summary");
+    const { computeResponseQuality } = await import("@/lib/quality/metrics");
+    const q = summarizeQuality([computeResponseQuality("(비밀 문구) 응답")], 0.9);
+    const md = qualitySection([["전체 케이스", { ...q, topActions: [] }]]).join("\n");
+    expect(md).not.toContain("비밀 문구");
+    expect(md).toContain("문구 생략(비공개 세트)");
+  });
+});

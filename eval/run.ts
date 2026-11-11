@@ -22,7 +22,8 @@ import { EVAL_DIR, PRIVATE_DIR, loadCharacter, loadRedteamSetsTagged, loadScenar
 import { estimatePlan } from "./lib/plan";
 import { lintSummary } from "./lib/summary-lint";
 import { buildJudgeRows, buildTranscript, renderJudgeCsv, renderResponsesMd, renderSummariesMd, type CaseTranscript } from "./lib/judge";
-import { classifyCase, compareRuns, summarizeRedteam, summarizeRun } from "./lib/metrics";
+import { classifyCase, compareRuns, qualityOf, summarizeRedteam, summarizeRun } from "./lib/metrics";
+import type { TurnResult } from "./lib/types";
 import { renderReport, type RedteamReport, type ReportMeta, type ScenarioReport } from "./lib/report";
 
 const { values: args, positionals } = parseArgs({
@@ -151,7 +152,7 @@ async function runScenarios(): Promise<ScenarioReport[]> {
         process.stdout.write(r.llmError ? "x" : r.interventions.length ? "!" : r.summaryUpdated ? "S" : "."),
       );
       process.stdout.write("\n");
-      return summarizeRun(results);
+      return summarizeRun(results, app.quality.minHangulRatio);
     };
     const baseline = modes.includes("baseline") ? await run("baseline") : null;
     const withSummary = modes.includes("summary") ? await run("summary") : null;
@@ -177,10 +178,12 @@ async function runRedteam(): Promise<RedteamReport[]> {
   for (const { set, isPrivate } of loadedSets) {
     console.log(`\n▶ 레드팀 ${set.id} (${set.cases.length}케이스)`);
     const cases = [];
+    const allTurns: TurnResult[] = [];
     for (const c of set.cases) {
       const caseCfg = { ...baseCfg, ...(c.summaryEvery !== undefined ? { summaryEvery: c.summaryEvery } : {}), ...(c.recentTurns !== undefined ? { recentTurns: c.recentTurns } : {}) };
       const { conv, results } = await runConversation(character, [], cut(c.turns), deps, caseCfg);
       const r = classifyCase(c, results, { appSafety: baseCfg.appSafety !== false });
+      allTurns.push(...results);
       if (isPrivate) {
         const summaries = conv.summaries.map((m) => ({ version: m.version, content: m.content, coversMessages: conv.messages.findIndex((x) => x.id === m.coversUntilMsg) + 1 }));
         transcripts.push(buildTranscript(set.id, c, results, summaries));
@@ -188,7 +191,9 @@ async function runRedteam(): Promise<RedteamReport[]> {
       cases.push(r);
       console.log(`  ${r.outcome === "success" ? "✓" : r.outcome === "fail" ? "✗" : "?"} ${c.id} [${c.label}→${c.expect}] ${r.firstIntervention ? `${r.firstIntervention.turn}턴 ${r.firstIntervention.stage}/${r.firstIntervention.kind}` : "개입 없음"}`);
     }
-    reports.push({ set, cases, summary: summarizeRedteam(cases) });
+    const q = qualityOf(allTurns, app.quality.minHangulRatio);
+    // 행동 묘사 문구는 응답 원문의 조각이다. 비공개 세트는 리포트·JSON에 싣지 않고 비율만 남긴다.
+    reports.push({ set, cases, summary: summarizeRedteam(cases), quality: isPrivate ? { ...q, topActions: [] } : q });
   }
   return reports;
 }
@@ -228,6 +233,7 @@ async function main() {
       LOREBOOK_SCAN_TURNS: app.lorebookScanTurns,
       MAX_OUTPUT_TOKENS: app.maxOutputTokens,
       CLASSIFIER_BLOCK_THRESHOLD: app.classifierBlockThreshold,
+      QUALITY_MIN_HANGUL_RATIO: app.quality.minHangulRatio,
       "FLOW (창/최소/경고/중단)": `${app.flow.windowTurns}/${app.flow.minTurns}/${app.flow.warnThreshold}/${app.flow.stopStrikes}`,
       "턴 수 제한(--max-turns)": maxTurns ?? "없음",
       "자체 안전 층": baseCfg.appSafety !== false ? "ON" : "OFF(--no-app-safety)",

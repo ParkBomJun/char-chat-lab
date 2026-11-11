@@ -23,6 +23,7 @@ const schema = z.object({
   FLOW_MIN_TURNS: num(2, 1),
   FLOW_WARN_THRESHOLD: flt(0.5),
   FLOW_STOP_STRIKES: num(2, 1),
+  QUALITY_MIN_HANGUL_RATIO: flt(0.9),
   CACHE_BREAKPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("1")),
   CACHE_MIN_TOKENS: num(4096, 1),
   LOREBOOK_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["afterFixed", "beforeInput"]).default("afterFixed")),
@@ -44,6 +45,8 @@ export type AppConfig = {
   /** 캐시 실험 옵션(E6 결과를 보고 기본값을 정한다). 기본: breakpoint 켬(E6 실측 후 결정, 2026-11-11), 로어북은 고정 블록 뒤 */
   cache: { breakpoint: boolean; minTokens: number; lorebookPosition: "afterFixed" | "beforeInput" };
   flow: { windowTurns: number; minTurns: number; warnThreshold: number; stopStrikes: number };
+  /** 응답 품질 지표의 표시 기준(기록·표시용, 차단에 쓰지 않는다): 한글 비율이 이 값 미만이면 '외국어 섞임'으로 센다 */
+  quality: { minHangulRatio: number };
 };
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -61,6 +64,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     classifierRetries: Math.min(e.CLASSIFIER_RETRIES, 2),
     classifierRetryDelayMs: Math.min(e.CLASSIFIER_RETRY_DELAY_MS, 5000),
     cache: { breakpoint: e.CACHE_BREAKPOINT === "1" || e.CACHE_BREAKPOINT === "true", minTokens: e.CACHE_MIN_TOKENS, lorebookPosition: e.LOREBOOK_POSITION },
+    quality: { minHangulRatio: e.QUALITY_MIN_HANGUL_RATIO },
     flow: {
       windowTurns: e.FLOW_WINDOW_TURNS,
       minTurns: e.FLOW_MIN_TURNS,

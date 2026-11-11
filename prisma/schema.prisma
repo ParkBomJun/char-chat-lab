@@ -112,9 +112,34 @@ model Message {
   role           MsgRole
   content        String
   retracted      Boolean      @default(false) // 출력 검사로 회수된 경우
+  metric         ResponseMetric?
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+/// ASSISTANT 응답의 품질 지표(모델 호출 없이 글자만 보고 계산). 기록용이며 차단·재생성에 쓰지 않는다. 회수된 메시지는 저장하지 않는다.
+model ResponseMetric {
+  id               String   @id @default(cuid())
+  messageId        String   @unique
+  message          Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversationId   String
+  characterId      String
+  /// 글자(공백·문장부호·숫자 제외) 중 한글 비율. 글자가 없으면 NULL
+  hangulRatio      Float?
+  hasForeignScript Boolean  @default(false)
+  /// 한글·라틴 외 문자 종류(han, kana, cyrillic, …)
+  foreignScripts   String[]
+  /// 괄호 안 행동 묘사 문구(앞뒤 공백 제거)
+  actionPhrases    String[]
+  length           Int
+  paragraphs       Int
+  endsWithQuestion Boolean
+  /// 메시지 시각(기간 필터 기준)
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([characterId, createdAt])
 }
 
 model MemorySummary {

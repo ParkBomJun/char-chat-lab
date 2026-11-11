@@ -56,3 +56,15 @@ npm run test:leak     # 터미널 B
 - **누출이 실제로 있을 때 실패하는지**는 `src/app/page.tsx`에 `persona`를 일부러 출력해 확인했다(실패 후 원복). 카드를 바꿔도 DB에서 지문을 다시 뽑으므로 따로 고칠 것이 없다.
 - 프로덕션 모드(`next start`)로 띄운 서버에 쓰려면 서버에 `AUTH_TRUST_HOST=true`가 필요하다. 다른 주소는 `E2E_BASE_URL`로 지정하되 `env=test` 확인은 그대로 적용된다.
 - 모델이 응답 텍스트로 persona를 흘리는 경우(프롬프트 유출 유도)는 이 테스트의 대상이 아니라 레드팀의 jailbreak·유출 범주가 본다.
+
+## 응답 품질 지표 재계산 (`npm run metrics:backfill`)
+
+기존 ASSISTANT 메시지의 `ResponseMetric`을 다시 계산한다(모델 호출 없음, 메시지는 읽기만 함).
+
+```bash
+npx tsx scripts/test-run.ts -- npx tsx scripts/metrics-backfill.ts   # 테스트 DB: 바로 실행
+npm run metrics:backfill                                             # 개발 DB: 대상만 보여 주고 멈춤(종료 코드 2)
+npm run metrics:backfill -- --yes                                    # 개발 DB에 실제로 기록
+```
+
+테스트 DB(`APP_ENV=test`)가 아니면 `--yes`가 있어야 쓴다. 회수된 메시지와 대화의 첫 인사는 대상이 아니다.

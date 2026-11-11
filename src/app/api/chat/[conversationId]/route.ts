@@ -18,6 +18,7 @@ import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output"
 import { NOTICE } from "@/lib/safety/messages";
 import { applyFlow, logClassifierCalls, saveEvents, saveNotice } from "@/lib/safety/persist";
 import { countTodayMessages } from "@/lib/daily-limit";
+import { saveResponseMetric } from "@/lib/quality/persist";
 import { remainingMessages } from "@/lib/kst";
 
 export const dynamic = "force-dynamic";
@@ -245,6 +246,14 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
         });
         await saveEvents(conversationId, saved.id, events);
         await logClassifierCalls(userId, conversationId, calls, rt.pricing);
+        // 응답 품질 지표(기록만, 차단·재생성에 쓰지 않는다). 회수된 응답은 제외하고, 실패해도 대화는 계속된다.
+        if (!retractNotice) {
+          try {
+            await saveResponseMetric({ messageId: saved.id, conversationId, characterId: conv.characterId, content: text });
+          } catch (e) {
+            console.error("[quality] 응답 지표 기록 실패", e);
+          }
+        }
 
         if (retractNotice) {
           const noticeId = await saveNotice(conversationId, retractNotice);

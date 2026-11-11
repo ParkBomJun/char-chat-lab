@@ -165,3 +165,17 @@ describe("평가 엔진: 자체 안전 층 OFF(--no-app-safety)와 제공사 필
     expect(results[0].interventions).toEqual([]);
   });
 });
+
+describe("평가 엔진: 응답 품질 지표", () => {
+  it("전달된 응답에만 지표가 붙고(회수·입력 차단 턴은 없음) 요약에 집계된다", async () => {
+    const { results } = await runConversation(character, [], ["평범한 질문", "이건 회수돼요 [[block-out]]", "[[block-in]] 입력 차단"], deps(), { ...cfg, summaryEnabled: false });
+    expect(results[0].quality).toBeDefined();
+    expect(results[0].quality!.actionPhrases).toEqual(["mock 응답"]); // mock 응답은 "(mock 응답)"으로 시작한다
+    expect(results[1].reply).toBeNull();
+    expect(results[1].quality).toBeUndefined();
+    expect(results[2].quality).toBeUndefined();
+    const s = summarizeRun(results, 0.9);
+    expect(s.quality.n).toBe(1);
+    expect(s.quality.topActions[0]).toMatchObject({ phrase: "mock 응답", count: 1, rate: 1 });
+  });
+});

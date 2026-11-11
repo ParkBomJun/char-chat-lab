@@ -1,6 +1,7 @@
 import type { Usage } from "@/lib/llm/types";
 import type { ErrorKind } from "@/lib/safety/failure";
 import type { BlockTokens } from "@/lib/chat/assemble";
+import type { ResponseQuality } from "@/lib/quality/metrics";
 
 export type CallKind = "CHAT" | "SUMMARY" | "CLASSIFIER";
 
@@ -65,6 +66,8 @@ export type TurnResult = {
   summaryUpdated: boolean;
   /** 응답 본문이 거절·화제 전환 문구를 포함(참고용 휴리스틱, 판정에는 쓰지 않는다) */
   refusalLike?: boolean;
+  /** 사용자에게 전달된 응답의 품질 지표(서비스의 ResponseMetric과 같은 계산). 회수된 응답은 없다 */
+  quality?: ResponseQuality;
 };
 
 export type { Usage };
