@@ -1,0 +1,205 @@
+/**
+ * 프롬프트 캐시 진단.
+ *   npm run cache:dump                       오프라인(네트워크 호출 없음): 연속 턴의 조립 결과를 만들어 고정 블록/접두사를 바이트 단위로 비교
+ *   npm run cache:probe -- --real            실제 호출 실험(비용 발생): 같은 요청 2회 연속 등으로 usage의 cached_tokens를 원문 그대로 출력
+ * --real 없이는 어떤 경우에도 네트워크 호출을 하지 않는다. 키는 출력하지 않는다.
+ */
+import "dotenv/config";
+import { parseArgs } from "node:util";
+import haru from "../prisma/seed-data/haru.json";
+import { assemblePrompt, renderFixedBlock, type HistoryMessage } from "../src/lib/chat/assemble";
+import { matchLorebook, type LorebookEntryData } from "../src/lib/lorebook/match";
+import { mergeLlmEnv } from "../src/lib/llm-settings";
+import { SseParser } from "../src/lib/sse";
+import { estimateTokens } from "../src/lib/tokens";
+import type { ChatMessage } from "../src/lib/llm/types";
+import { comparePrefix, firstDiffSnippet, sha } from "./cache-probe-lib";
+
+const { values: args, positionals } = parseArgs({
+  allowPositionals: true,
+  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" } },
+});
+const cmd = positionals[0] ?? "dump";
+
+// ── 서비스와 같은 조립기로 연속 턴을 만든다(최대한 실제 시나리오와 같게: 로어북 키워드가 단계적으로 등장) ──
+const lorebook: LorebookEntryData[] = haru.lorebook.map((l) => ({ id: l.id, keywords: l.keywords, content: l.content, priority: l.priority, enabled: true }));
+const userLines = ["오늘은 날씨가 좋네요", "정원 얘기 해 줄래요?", "윤 선생님은 어떤 분이에요?", "솔바람 마을엔 뭐가 있어요?", "고양이도 있다면서요", "다음엔 뭘 읽어 볼까요?"];
+// 캐릭터 응답은 길이가 비슷한 자리표시. 1턴 응답에만 '책갈피'가 들어가 있다(실제 대화에서 그랬다).
+const replies = [
+  "(안경을 고쳐 쓰며) 어라, 오늘은 제 인사를 먼저 가져가셨네요. 볕 좋은 창가 자리에 '책갈피'도 벌써 자리를 잡고 졸고 있답니다. 오늘은 서가 쪽을 둘러보실래요?",
+  "좋아요. 도서관 뒤편 정원은 제가 아침마다 가장 먼저 들르는 곳이에요. 바람이 불 때마다 담장 쪽에서 좋은 냄새가 번져 오죠. 혹시 좋아하시는 향이 있으세요?",
+  "윤 선생님은 참 따뜻하고 넉넉한 분이셨어요. 지금은 바닷가 마을에서 작은 서점을 하고 계신답니다. 혹시 안부가 궁금한 분이 계신가요?",
+  "솔바람 마을은 작고 조용한 곳이에요. 언덕 아래 빵집이 있고 토요일엔 장터가 열려요. 조용한 마을과 도시 중에 어느 쪽이 좋으세요?",
+  "네, 바로 저기 낮잠에 빠져 있는 녀석이에요. 조금 도도하지만 책을 조용히 읽는 사람 곁에는 슬그머니 다가가요. 혹시 고양이를 좋아하시나요?",
+];
+
+type Turn = { input: string; messages: ChatMessage[]; loreIds: string[]; blocks: ReturnType<typeof assemblePrompt>["blockTokens"] };
+
+function buildTurns(loreMode: "production" | "afterHistory" = "production"): Turn[] {
+  const history: HistoryMessage[] = [{ role: "ASSISTANT", content: haru.character.greeting }];
+  const out: Turn[] = [];
+  userLines.forEach((input, i) => {
+    const hits = matchLorebook(lorebook, [...history, { role: "USER", content: input }], 4);
+    const a = assemblePrompt(haru.character, null, hits, history, input, { promptTokenBudget: 100_000, lorebookTokenBudget: 800 });
+    let messages = a.messages;
+    if (loreMode === "afterHistory" && a.lorebookIds.length) {
+      // 참고용 대안: 로어북 블록을 맨 앞(고정 블록 뒤)이 아니라 이번 입력 바로 앞으로 옮긴 경우
+      const loreMsg = messages.find((m, k) => k > 0 && m.role === "system" && m.content.startsWith("# 참고 설정"))!;
+      messages = messages.filter((m) => m !== loreMsg);
+      messages.splice(messages.length - 1, 0, loreMsg);
+    }
+    out.push({ input, messages, loreIds: a.lorebookIds, blocks: a.blockTokens });
+    history.push({ role: "USER", content: input });
+    if (i < replies.length) history.push({ role: "ASSISTANT", content: replies[i] });
+  });
+  return out;
+}
+
+const pct = (n: number, d: number) => (d ? `${((n / d) * 100).toFixed(0)}%` : "-");
+
+function dump() {
+  const fixed = renderFixedBlock(haru.character);
+  console.log("══ 1) 고정 블록(시스템 프롬프트+카드) ══");
+  console.log(`글자 ${fixed.length} · 추정 토큰(글자 수 기준) ${estimateTokens(fixed)} · 실측은 첫 턴 inputTokens 참고(이전 관측: 첫 턴 총 1,484토큰)`);
+  console.log("턴마다 바뀌는 값 포함 여부: 렌더 함수는 카드 필드와 상수만 사용 → 같은 카드면 항상 같은 문자열");
+  console.log(`같은 카드로 두 번 렌더해 바이트 비교: ${Buffer.from(renderFixedBlock(haru.character)).equals(Buffer.from(renderFixedBlock(haru.character))) ? "동일" : "다름!"}\n`);
+
+  const turns = buildTurns("production");
+  console.log("══ 2) 연속 턴 조립 결과(서비스 방식: 로어북 = 고정 블록 바로 뒤) ══");
+  const fixedHashes = new Set(turns.map((t) => sha(t.messages[0].content)));
+  console.log(`턴별 messages[0] 해시: ${turns.map((t) => sha(t.messages[0].content)).join(" ")} → 서로 다른 값 ${fixedHashes.size}개 ${fixedHashes.size === 1 ? "(모든 턴에서 고정 블록은 바이트 단위로 동일)" : "(!!)"}\n`);
+  console.log("턴  메시지수  총글자  로어북 id");
+  turns.forEach((t, i) => console.log(`${String(i + 1).padStart(2)}  ${String(t.messages.length).padStart(6)}  ${String(t.messages.reduce((n, m) => n + m.content.length, 0)).padStart(6)}  ${t.loreIds.join(", ") || "-"}`));
+
+  console.log("\n══ 3) 연속 두 턴의 접두사 비교 (제공사 캐시가 재사용할 수 있는 부분) ══");
+  console.log("구간   공통 메시지  첫 불일치  공통글자/이전요청글자  이전 요청 전체가 접두사?");
+  const rows: { r: ReturnType<typeof comparePrefix>; label: string }[] = [];
+  for (let i = 0; i + 1 < turns.length; i++) {
+    const r = comparePrefix(turns[i].messages, turns[i + 1].messages);
+    rows.push({ r, label: `${i + 1}→${i + 2}` });
+    console.log(`${(i + 1 + "→" + (i + 2)).padEnd(6)} ${String(r.sameMessages).padStart(8)}   ${String(r.firstDiffIndex ?? "-").padStart(8)}  ${String(r.sameChars).padStart(6)}/${String(r.totalCharsA).padEnd(6)} (${pct(r.sameChars, r.totalCharsA).padStart(4)})   ${r.aIsPrefixOfB ? "예" : "아니오"}`);
+  }
+  const bad = rows.find((x) => !x.r.aIsPrefixOfB);
+  if (bad) {
+    const i = Number(bad.label.split("→")[0]) - 1;
+    const idx = bad.r.firstDiffIndex!;
+    console.log(`\n── 첫 불일치 예시(${bad.label}): messages[${idx}] ──`);
+    console.log(` 이전 요청: [${turns[i].messages[idx].role}] ${JSON.stringify(turns[i].messages[idx].content.slice(0, 50))}`);
+    console.log(` 다음 요청: [${turns[i + 1].messages[idx].role}] ${JSON.stringify(turns[i + 1].messages[idx].content.slice(0, 50))}`);
+    console.log(` 글자 단위 차이: ${firstDiffSnippet(turns[i].messages[idx].content, turns[i + 1].messages[idx].content)}`);
+  }
+
+  console.log("\n══ 4) 참고: 로어북을 이번 입력 바로 앞으로 옮기면(SPEC 2단계 실험 후보) ══");
+  const alt = buildTurns("afterHistory");
+  for (let i = 0; i + 1 < alt.length; i++) {
+    const r = comparePrefix(alt[i].messages, alt[i + 1].messages);
+    console.log(`${(i + 1 + "→" + (i + 2)).padEnd(6)} 공통 ${r.sameChars}/${r.totalCharsA}자 (${pct(r.sameChars, r.totalCharsA)}) · 이전 요청이 통째로 접두사: ${r.aIsPrefixOfB ? "예" : "아니오"}`);
+  }
+  console.log("\n(위 비교는 로컬 조립 결과뿐이며 네트워크 호출은 없었습니다.)");
+}
+
+// ── 실제 호출 실험 ───────────────────────────────────────────────────────────
+type Probe = { label: string; promptTokens: number | null; completion: number | null; cached: number | null; rawUsage: unknown; id: string | null; ms: number; note?: string };
+
+async function callOnce(label: string, base: string, key: string, body: Record<string, unknown>, stream: boolean, extraHeaders: Record<string, string> = {}): Promise<Probe> {
+  const t0 = Date.now();
+  const res = await fetch(`${base.replace(/\/+$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, ...extraHeaders },
+    body: JSON.stringify({ ...body, stream, ...(stream ? { stream_options: { include_usage: true } } : {}) }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`${label}: HTTP ${res.status} ${(await res.text()).slice(0, 160).replace(key, "***")}`);
+  let usage: Record<string, unknown> | null = null;
+  let id: string | null = null;
+  if (stream) {
+    const parser = new SseParser();
+    const dec = new TextDecoder();
+    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      for (const f of parser.feed(dec.decode(chunk, { stream: true }))) {
+        if (f.data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(f.data);
+          id ??= j.id ?? null;
+          if (j.usage) usage = j.usage; // 마지막 usage 청크(원문)
+        } catch {
+          /* 무시 */
+        }
+      }
+    }
+  } else {
+    const j = await res.json();
+    id = j.id ?? null;
+    usage = j.usage ?? null;
+  }
+  const details = (usage?.prompt_tokens_details ?? null) as { cached_tokens?: number } | null;
+  return {
+    label,
+    promptTokens: (usage?.prompt_tokens as number) ?? null,
+    completion: (usage?.completion_tokens as number) ?? null,
+    cached: details?.cached_tokens ?? null,
+    rawUsage: usage,
+    id,
+    ms: Date.now() - t0,
+  };
+}
+
+async function probe() {
+  if (!args.real) {
+    console.log("실제 호출 실험입니다(비용 발생). 의도했다면 --real 을 붙여 다시 실행하세요:  npm run cache:probe -- --real");
+    console.log("호출 계획: 약 7회(스트리밍 동일 요청 2회, 비스트리밍 동일 요청 2회, session_id 동일 요청 2회, 접두사가 이어지는 후속 요청 1회). 각 요청 max_tokens=64라 출력 비용은 거의 없고 입력 약 1.5~2.5K토큰×7입니다.");
+    return;
+  }
+  if (process.env.APP_ENV === "test" && process.env.ALLOW_REAL_LLM !== "1") throw new Error("APP_ENV=test에서는 ALLOW_REAL_LLM=1 없이 실제 호출을 하지 않습니다.");
+
+  // 설정 해석: 환경변수 > (없으면) 관리자 화면에서 저장한 설정(DB). 서비스와 같은 우선순위가 아니라 '있는 것'을 쓴다.
+  let env: Record<string, string | undefined> = process.env;
+  if (!env.LLM_API_KEY?.trim()) {
+    const { loadLlmSettings } = await import("../src/lib/settings-db");
+    env = mergeLlmEnv(process.env, await loadLlmSettings());
+  }
+  const key = env.LLM_API_KEY?.trim();
+  const model = env.LLM_CHAT_MODEL?.trim();
+  const base = env.LLM_BASE_URL?.trim() || "https://api.openai.com/v1";
+  if (!key || !model) throw new Error("LLM_API_KEY/LLM_CHAT_MODEL이 없습니다(.env 또는 관리자 화면 설정).");
+  const effort = env.LLM_REASONING_EFFORT?.trim();
+  console.log(`대상: ${base} · 모델 ${model} · 추론 강도 ${effort || "(보내지 않음)"} · 키는 출력하지 않음\n`);
+
+  const turns = buildTurns("production");
+  const A = turns[2].messages; // 3번째 턴(약 1.9K토큰 규모, 서비스와 같은 조립 결과)
+  const B = [...A, { role: "assistant" as const, content: replies[2] }, { role: "user" as const, content: "그분이 보내신 편지 얘기도 더 해 주세요" }];
+  const base0 = { model, max_tokens: 64, ...(effort ? { reasoning: { effort } } : {}) };
+  const gap = Math.max(0, Number(args.gap) || 3) * 1000;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const results: Probe[] = [];
+  const run = async (label: string, messages: ChatMessage[], stream: boolean, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) => {
+    try {
+      const p = await callOnce(label, base, key, { ...base0, messages, ...extra }, stream, headers);
+      results.push(p);
+    } catch (e) {
+      results.push({ label, promptTokens: null, completion: null, cached: null, rawUsage: null, id: null, ms: 0, note: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+    await sleep(gap);
+  };
+
+  await run("E1-1 스트리밍 동일요청 첫번째", A, true);
+  await run("E1-2 스트리밍 동일요청 두번째", A, true);
+  await run("E1n-1 비스트리밍 첫번째", A, false);
+  await run("E1n-2 비스트리밍 두번째", A, false);
+  const sid = args["session-id"] ?? `cache-probe-${Date.now()}`;
+  await run("E2-1 session_id 첫번째", A, true, { session_id: sid });
+  await run("E2-2 session_id 두번째", A, true, { session_id: sid });
+  await run("E3 접두사가 이어지는 후속(A+새 턴)", B, true, { session_id: sid });
+
+  console.log("실험                           prompt  cached  completion   ms   id");
+  for (const r of results) console.log(`${r.label.padEnd(32)} ${String(r.promptTokens ?? "-").padStart(6)} ${String(r.cached ?? "(필드 없음)").padStart(7)} ${String(r.completion ?? "-").padStart(10)} ${String(r.ms).padStart(5)}  ${r.id ?? "-"}${r.note ? "  ⚠ " + r.note : ""}`);
+  console.log("\n── usage 원문(마지막 청크/응답) ──");
+  for (const r of results) console.log(`${r.label}: ${JSON.stringify(r.rawUsage)}`);
+  console.log("\n해석 가이드: E1-2의 cached가 0보다 크면 이 모델은 캐시를 지원하고 우리 쪽 보고도 정상. E1-2가 0이고 E2-2(session_id)만 크면 라우팅 문제(session_id 필요).");
+  console.log("E1/E2 모두 0이고 E1n(비스트리밍)만 크면 스트리밍 usage에 cached가 빠지는 것. 모두 0이면 모델 최소 길이 미달 또는 해당 모델/엔드포인트가 암시적 캐시 미지원.");
+}
+
+(cmd === "dump" ? Promise.resolve(dump()) : probe()).catch((e) => {
+  console.error("✗", e instanceof Error ? e.message : e);
+  process.exit(1);
+});

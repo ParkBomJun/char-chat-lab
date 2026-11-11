@@ -17,7 +17,14 @@
     "eval": "tsx eval/run.ts all",
     "eval:scenarios": "tsx eval/run.ts scenarios",
     "eval:redteam": "tsx eval/run.ts redteam",
-    "predeploy": "tsx scripts/predeploy.ts"
+    "predeploy": "tsx scripts/predeploy.ts",
+    "db:test:up": "docker compose --profile test up -d --wait db-test",
+    "db:test:reset": "docker compose --profile test up -d --force-recreate --wait db-test && tsx scripts/test-run.ts -- sh -c \"npx prisma migrate deploy && npx prisma db seed\"",
+    "db:test:down": "docker compose --profile test stop db-test",
+    "dev:test": "tsx scripts/test-run.ts -- next dev -p 3110",
+    "dev:test:real": "tsx scripts/test-run.ts --real -- next dev -p 3110",
+    "cache:dump": "tsx scripts/cache-probe.ts dump",
+    "cache:probe": "tsx scripts/cache-probe.ts probe"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

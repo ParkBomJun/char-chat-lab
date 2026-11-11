@@ -12,6 +12,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "@/lib/config";
 import { getLlm } from "@/lib/llm";
+import { effectiveEnv } from "@/lib/test-guard";
 import { pricing } from "@/lib/pricing";
 import { renderFixedBlock } from "@/lib/chat/assemble";
 import { estimateTokens } from "@/lib/tokens";
@@ -44,9 +45,10 @@ const modes = args.modes!.split(",").map((m) => m.trim()).filter(Boolean);
 if (modes.some((m) => m !== "baseline" && m !== "summary")) throw new Error('--modes는 baseline, summary만 가능합니다.');
 const maxTurns = args["max-turns"] ? Math.max(1, Math.floor(Number(args["max-turns"]))) : undefined;
 
-const llm = getLlm();
+// APP_ENV=test이면 ALLOW_REAL_LLM=1 없이는 실제 호출이 막혀 mock으로 돈다
+const llm = getLlm(effectiveEnv());
 const isMock = llm.adapter.name === "mock";
-const classifier = getClassifier();
+const classifier = getClassifier(effectiveEnv());
 const deps: EngineDeps = { adapter: llm.adapter, chatModel: llm.chatModel, lightModel: llm.lightModel, classifier };
 
 const app = loadConfig();

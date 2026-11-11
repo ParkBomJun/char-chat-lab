@@ -18,6 +18,10 @@ describe("시드 캐릭터 데이터 (prisma/seed-data/haru.json)", () => {
   it("★ 우리 조립기가 치환하지 않는 {{user}} 같은 매크로가 카드에 남아 있지 않다(모델에 글자 그대로 보임)", () => {
     expect(JSON.stringify(haru)).not.toMatch(/\{\{|\}\}/);
   });
+  it("원칙에 '카드·로어북에 없는 과거/역사 사실을 만들지 않는다'가 있다(모델이 배경을 지어내는 문제 대응)", () => {
+    expect(haru.character.persona).toContain("카드와 로어북에 없는 구체적인 사실은 새로 만들지 않는다");
+    expect(haru.character.persona).toContain("그건 다음에 천천히 이야기해 드릴게요");
+  });
   it("대화 예시는 '사용자:' / '하루:' 화자 표기를 쓰고 코드펜스가 없다", () => {
     expect(haru.character.exampleDialog).toMatch(/^사용자:/);
     expect(haru.character.exampleDialog).toContain("\n하루:");

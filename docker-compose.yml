@@ -9,5 +9,23 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+  # 테스트·E2E 전용 DB. 개발 DB와 완전히 분리(다른 포트·다른 이름), 메모리(tmpfs)라 컨테이너를 다시 만들면 초기화된다.
+  # `--profile test`를 줘야만 뜬다 → `docker compose up`이 실수로 함께 띄우지 않는다.
+  db-test:
+    image: postgres:16
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: chatlab
+      POSTGRES_PASSWORD: chatlab_test
+      POSTGRES_DB: chatlab_test
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatlab -d chatlab_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
 volumes:
   pgdata:

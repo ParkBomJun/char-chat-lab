@@ -5,6 +5,7 @@ import { pricing as basePricing, type PricingTable } from "@/lib/pricing";
 import { getClassifier } from "@/lib/safety";
 import type { Classifier } from "@/lib/safety/classifier";
 import { loadLlmSettings } from "@/lib/settings-db";
+import { effectiveEnv, isRealLlmBlocked } from "@/lib/test-guard";
 
 export type Runtime = {
   llm: LlmConfig;
@@ -22,8 +23,10 @@ export type Runtime = {
  * 기존 getLlm(env)·getClassifier(env)를 그대로 쓰므로 키가 없으면 mock, 있으면 실제 어댑터가 된다.
  */
 export async function resolveRuntime(): Promise<Runtime> {
-  const s = await loadLlmSettings();
-  const env = mergeLlmEnv(process.env, s);
+  // 테스트 환경(APP_ENV=test)은 ALLOW_REAL_LLM=1이 없으면 DB에 저장된 키도, 환경변수 키도 무시하고 mock만 쓴다.
+  const blocked = isRealLlmBlocked();
+  const s = blocked ? null : await loadLlmSettings();
+  const env = mergeLlmEnv(effectiveEnv(), s);
   const llm = getLlm(env);
   return {
     llm,

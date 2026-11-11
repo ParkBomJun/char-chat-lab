@@ -1,5 +1,9 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
+import { assertDatabaseMatchesEnv } from "@/lib/test-guard";
+
+// 테스트 환경이 개발 DB에 붙으면 여기서 즉시 중단한다.
+assertDatabaseMatchesEnv();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

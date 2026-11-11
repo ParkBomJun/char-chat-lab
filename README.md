@@ -126,6 +126,7 @@ npm run dev                     # http://localhost:3000
   - **관리자 화면에서 입력(가장 쉬움)**: 관리자로 로그인 → `LLM 설정`(`/admin/settings`)에서 API 주소·키·모델·단가를 넣고 **연결 테스트** 후 저장하면 재시작 없이 바로 적용됩니다. **OpenAI·OpenRouter 프리셋 버튼**이 있어 주소를 채워 줍니다(OpenRouter는 `https://openrouter.ai/api/v1`, 모델 이름은 `제공사/모델` 형식, 모델마다 구조화 출력 지원이 달라 기본 off). Gemini 같은 **추론(thinking) 모델**은 출력 토큰을 추론에 먼저 써서 본문이 비어 올 수 있으므로, 화면에서 **추론 강도**(`reasoning.effort`)와 **최대 출력 토큰**을 조절할 수 있고 연결 테스트가 빈 응답의 원인을 설명해 줍니다. 키는 AES-256-GCM으로 암호화해 DB에 저장하고 화면에는 끝 4자리만 보입니다. 우선순위는 화면 설정 > 환경변수 > mock입니다.
   - **환경변수**: `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL`(저가 모델)을 채우고 `src/config/pricing.json`에 단가를 입력합니다. 공개 운영에서는 이쪽을 권장합니다(DB와 `AUTH_SECRET`이 함께 유출돼도 키가 나가지 않음).
 - 테스트: `npm test` · 타입: `npm run typecheck` · 린트: `npm run lint`
+- **E2E·통합 테스트는 개발 DB가 아니라 전용 테스트 DB + mock LLM**으로 돌립니다(`npm run db:test:reset` → `npm run dev:test`, 포트 3110). 실제 LLM 호출은 `dev:test:real`처럼 명시적으로 허용했을 때만 일어납니다. 규칙과 가드는 [`docs/TESTING.md`](docs/TESTING.md).
 - 개발 계정: `.env`의 `DEMO_EMAIL`/`DEMO_PASSWORD`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` (**공개 배포에서는 반드시 교체**)
 
 ## 배포

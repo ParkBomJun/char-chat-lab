@@ -5,6 +5,7 @@ import { LlmClassifier } from "@/lib/safety/classifier";
 import { OpenAiCompatAdapter } from "@/lib/llm/openai";
 import { collectText } from "@/lib/llm/collect";
 import { loadConfig } from "@/lib/config";
+import { isRealLlmBlocked } from "@/lib/test-guard";
 import { baseUrlHint, explainEmptyResponse, parseLlmForm, redact, toSettings } from "@/lib/llm-settings";
 import { clearLlmSettings, loadLlmSettingsFresh, saveLlmSettings } from "@/lib/settings-db";
 
@@ -45,6 +46,9 @@ const TIMEOUT_MS = 25_000;
  */
 export async function testLlmAction(fd: FormData): Promise<TestResult> {
   await requireAdmin();
+  if (isRealLlmBlocked()) {
+    return { ok: false, error: "테스트 환경(APP_ENV=test)에서는 실제 LLM 호출이 차단되어 있습니다. 실제 호출이 필요하면 ALLOW_REAL_LLM=1을 명시한 `npm run dev:test:real`로 실행하세요." };
+  }
   const parsed = parseLlmForm(fd);
   if (!parsed.ok) return { ok: false, error: parsed.error };
 
