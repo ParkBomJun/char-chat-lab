@@ -47,7 +47,7 @@ describe("OpenAiCompatAdapter", () => {
     });
     const events = await collect(adapter.stream({ model: "m", messages: [{ role: "user", content: "hi" }] }));
     expect(events.filter((e) => e.type === "delta").map((e) => (e as { text: string }).text).join("")).toBe("안녕하세요");
-    expect(events.at(-1)).toEqual({ type: "done", usage: { inputTokens: 100, cachedInputTokens: 64, outputTokens: 7 } });
+    expect(events.at(-1)).toMatchObject({ type: "done", usage: { inputTokens: 100, cachedInputTokens: 64, outputTokens: 7 }, meta: { reasoningChars: 0 } });
     expect(body.stream).toBe(true);
     expect(body.stream_options).toEqual({ include_usage: true });
   });
@@ -70,7 +70,7 @@ describe("OpenAiCompatAdapter", () => {
       fetchImpl: async () => sseResponse([chunk({ choices: [{ delta: { content: "a" } }] }), "data: [DONE]\n\n"]),
     });
     const events = await collect(adapter.stream({ model: "m", messages: [] }));
-    expect(events.at(-1)).toEqual({ type: "done", usage: null });
+    expect(events.at(-1)).toMatchObject({ type: "done", usage: null });
   });
 
   it("HTTP 오류는 LlmError(status 포함)", async () => {
@@ -114,7 +114,45 @@ describe("OpenAiCompatAdapter", () => {
     });
     const events = await collect(adapter.stream({ model: "provider/model", messages: [] }));
     expect(events[0]).toEqual({ type: "delta", text: "안녕" });
-    expect(events.at(-1)).toEqual({ type: "done", usage: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 3 } });
+    expect(events.at(-1)).toMatchObject({ type: "done", usage: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 3 }, meta: { finishReason: "stop" } });
+  });
+
+  it("★ 추론 모델: 본문 없이 추론만 오고 finish_reason=length면 meta로 원인을 알 수 있다", async () => {
+    const adapter = new OpenAiCompatAdapter({
+      baseUrl: "http://x",
+      apiKey: "k",
+      fetchImpl: async () =>
+        sseResponse([
+          chunk({ choices: [{ delta: { content: "", reasoning: "먼저 생각해 보면 사용자가" } }] }),
+          chunk({ choices: [{ delta: { reasoning_details: [{ type: "reasoning.text", text: "더 생각" }] } }] }),
+          chunk({ choices: [{ delta: { content: "" }, finish_reason: "length" }], usage: { prompt_tokens: 20, completion_tokens: 32 } }),
+          "data: [DONE]\n\n",
+        ]),
+    });
+    const events = await collect(adapter.stream({ model: "m", messages: [], maxOutputTokens: 32 }));
+    expect(events.filter((e) => e.type === "delta")).toHaveLength(0); // 추론 내용은 사용자에게 보내지 않는다
+    const done = events.at(-1) as Extract<LlmEvent, { type: "done" }>;
+    expect(done.meta?.finishReason).toBe("length");
+    expect(done.meta!.reasoningChars).toBeGreaterThan(10);
+    expect(done.usage?.outputTokens).toBe(32);
+  });
+
+  it("reasoningEffort를 지정했을 때만 요청에 reasoning.effort를 보낸다", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const mk = (reasoningEffort?: string) =>
+      new OpenAiCompatAdapter({
+        baseUrl: "http://x",
+        apiKey: "k",
+        reasoningEffort,
+        fetchImpl: async (_u, init) => {
+          bodies.push(JSON.parse(String(init!.body)));
+          return sseResponse([chunk({ choices: [{ delta: { content: "a" } }] }), "data: [DONE]\n\n"]);
+        },
+      });
+    await collect(mk("low").stream({ model: "m", messages: [] }));
+    await collect(mk().stream({ model: "m", messages: [] }));
+    expect(bodies[0].reasoning).toEqual({ effort: "low" });
+    expect("reasoning" in bodies[1]).toBe(false);
   });
 
   it("네트워크 오류도 LlmError로 감싼다", async () => {
@@ -142,5 +180,7 @@ describe("MockAdapter / getLlm", () => {
     expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m" }).lightModel).toBe("m");
     expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m", LLM_CLASSIFIER_MODEL: "cheap" }).lightModel).toBe("cheap");
     expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m", LLM_PROVIDER: "mock" }).adapter.name).toBe("mock");
+    // 알 수 없는 추론 강도 값은 무시(요청에 보내지 않음)
+    expect(() => getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m", LLM_REASONING_EFFORT: "bogus" })).not.toThrow();
   });
 });

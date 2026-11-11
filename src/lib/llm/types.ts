@@ -17,9 +17,17 @@ export type LlmRequest = {
   signal?: AbortSignal;
 };
 
+/** 스트림이 끝난 뒤의 진단 정보. 본문이 비어 올 때 원인을 알려 주는 데 쓴다. */
+export type StreamMeta = {
+  /** 마지막 청크의 finish_reason(stop | length | error 등). 알 수 없으면 null */
+  finishReason: string | null;
+  /** 추론(reasoning) 내용으로 받은 글자 수. 본문(delta.content)과 별개 */
+  reasoningChars: number;
+};
+
 export type LlmEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; usage: Usage | null };
+  | { type: "done"; usage: Usage | null; meta?: StreamMeta };
 
 export interface LlmAdapter {
   readonly name: string;

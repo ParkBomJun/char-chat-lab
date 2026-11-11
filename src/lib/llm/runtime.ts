@@ -1,3 +1,4 @@
+import { loadConfig } from "@/lib/config";
 import { getLlm, type LlmConfig } from "@/lib/llm";
 import { mergeLlmEnv, mergePricing } from "@/lib/llm-settings";
 import { pricing as basePricing, type PricingTable } from "@/lib/pricing";
@@ -10,6 +11,8 @@ export type Runtime = {
   classifier: Classifier;
   /** 파일 단가 위에 화면에서 입력한 단가를 덮은 표 */
   pricing: PricingTable;
+  /** 대화 응답의 최대 출력 토큰: 화면 설정 > MAX_OUTPUT_TOKENS */
+  maxOutputTokens: number;
   /** 어디의 설정을 쓰고 있나: 관리자 화면(DB) / 환경변수 / 키 없음(mock) */
   source: "db" | "env" | "mock";
 };
@@ -26,6 +29,7 @@ export async function resolveRuntime(): Promise<Runtime> {
     llm,
     classifier: getClassifier(env),
     pricing: mergePricing(basePricing, s?.pricing),
+    maxOutputTokens: s?.maxOutputTokens || loadConfig().maxOutputTokens,
     source: s ? "db" : llm.adapter.name === "mock" ? "mock" : "env",
   };
 }

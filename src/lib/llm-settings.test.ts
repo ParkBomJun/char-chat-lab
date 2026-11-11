@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getLlm } from "@/lib/llm";
-import { PRESETS, baseUrlHint, maskKey, mergeLlmEnv, mergePricing, parseLlmForm, redact, toSettings, validateBaseUrl, type LlmSettings } from "./llm-settings";
+import { PRESETS, baseUrlHint, explainEmptyResponse, maskKey, mergeLlmEnv, mergePricing, parseLlmForm, redact, toSettings, validateBaseUrl, type LlmSettings } from "./llm-settings";
 
-const S: LlmSettings = { baseUrl: "https://api.example.com/v1", apiKey: "sk-test-1234567890", chatModel: "big", classifierModel: "small", structuredOutput: true, pricing: {} };
+const S: LlmSettings = { baseUrl: "https://api.example.com/v1", apiKey: "sk-test-1234567890", chatModel: "big", classifierModel: "small", structuredOutput: true, reasoningEffort: "", maxOutputTokens: 0, pricing: {} };
 const fd = (o: Record<string, string>) => {
   const f = new FormData();
   for (const [k, v] of Object.entries(o)) f.set(k, v);
@@ -117,5 +117,47 @@ describe("OpenRouter 프리셋·주소 힌트", () => {
     const f = new FormData();
     for (const [k, v] of Object.entries({ baseUrl: "https://openrouter.ai/api/v1", apiKey: "k", chatModel: "provider/model-name:free", classifierModel: "other/small" })) f.set(k, v);
     expect(parseLlmForm(f)).toMatchObject({ ok: true, data: { chatModel: "provider/model-name:free" } });
+  });
+});
+
+describe("추론 강도·최대 출력 토큰", () => {
+  const ok = (o: Record<string, string>) => {
+    const r = parseLlmForm(fd({ ...base, ...o }));
+    if (!r.ok) throw new Error(r.error);
+    return r.data;
+  };
+  it("기본값은 빈 문자열(보내지 않음)과 0(서버 기본값)", () => {
+    expect(ok({})).toMatchObject({ reasoningEffort: "", maxOutputTokens: 0 });
+  });
+  it("허용된 강도와 범위 안의 토큰 수", () => {
+    expect(ok({ reasoningEffort: "low", maxOutputTokens: "4096" })).toMatchObject({ reasoningEffort: "low", maxOutputTokens: 4096 });
+    expect(ok({ reasoningEffort: "none" }).reasoningEffort).toBe("none");
+  });
+  it("알 수 없는 강도·범위 밖/비정수 토큰은 거절", () => {
+    expect(parseLlmForm(fd({ ...base, reasoningEffort: "extreme" }))).toMatchObject({ ok: false });
+    for (const v of ["10", "70000", "abc", "1.5", "-1"]) expect(parseLlmForm(fd({ ...base, maxOutputTokens: v }))).toMatchObject({ ok: false });
+  });
+  it("환경변수로 전달되고, 빈 값이면 환경변수에서 제거된다", () => {
+    expect(mergeLlmEnv({}, { ...S, reasoningEffort: "minimal" }).LLM_REASONING_EFFORT).toBe("minimal");
+    expect(mergeLlmEnv({ LLM_REASONING_EFFORT: "high" }, { ...S, reasoningEffort: "" }).LLM_REASONING_EFFORT).toBeUndefined();
+  });
+});
+
+describe("explainEmptyResponse (빈 응답 원인 설명)", () => {
+  const u = { inputTokens: 10, cachedInputTokens: 0, outputTokens: 32 };
+  it("finish_reason=length: 추론이 출력 한도를 먹었다고 설명하고 한도 값을 보여 준다", () => {
+    const m = explainEmptyResponse({ finishReason: "length", reasoningChars: 120 }, u, 32);
+    expect(m).toContain("finish_reason=length");
+    expect(m).toContain("(32)");
+    expect(m).toContain("추론 강도를 낮추");
+  });
+  it("추론만 받고 종료", () => {
+    expect(explainEmptyResponse({ finishReason: "stop", reasoningChars: 50 }, null, 1024)).toContain("추론만 하고 본문을 보내지 않았습니다");
+  });
+  it("토큰은 썼는데 본문·추론 정보가 없는 경우(추론이 숨겨진 모델)", () => {
+    expect(explainEmptyResponse({ finishReason: "stop", reasoningChars: 0 }, u, 1024)).toContain("토큰은 소비됐지만");
+  });
+  it("아무 정보도 없으면 모델·제공사 확인 안내", () => {
+    expect(explainEmptyResponse(null, null, 1024)).toContain("아무 내용도 보내지 않았습니다");
   });
 });

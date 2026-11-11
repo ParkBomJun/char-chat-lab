@@ -4,7 +4,8 @@ import { requireAdmin } from "@/lib/admin/guard";
 import { LlmClassifier } from "@/lib/safety/classifier";
 import { OpenAiCompatAdapter } from "@/lib/llm/openai";
 import { collectText } from "@/lib/llm/collect";
-import { baseUrlHint, parseLlmForm, redact, toSettings } from "@/lib/llm-settings";
+import { loadConfig } from "@/lib/config";
+import { baseUrlHint, explainEmptyResponse, parseLlmForm, redact, toSettings } from "@/lib/llm-settings";
 import { clearLlmSettings, loadLlmSettingsFresh, saveLlmSettings } from "@/lib/settings-db";
 
 export type SaveResult = { ok: true; message: string } | { ok: false; error: string };
@@ -52,22 +53,27 @@ export async function testLlmAction(fd: FormData): Promise<TestResult> {
   if (!apiKey) return { ok: false, error: "테스트할 API 키가 없습니다. 키를 입력해 주세요." };
 
   const d = parsed.data;
-  const adapter = new OpenAiCompatAdapter({ baseUrl: d.baseUrl, apiKey, timeoutMs: TIMEOUT_MS });
+  // 실제 대화와 같은 조건으로 시험해야 의미가 있다: 추론 강도와 최대 출력 토큰을 그대로 쓴다.
+  const maxOut = d.maxOutputTokens || loadConfig().maxOutputTokens;
+  const adapter = new OpenAiCompatAdapter({ baseUrl: d.baseUrl, apiKey, timeoutMs: TIMEOUT_MS, reasoningEffort: d.reasoningEffort || undefined });
   const clsModel = d.classifierModel || d.chatModel;
   const checks: CheckResult[] = [];
 
   const t1 = Date.now();
   try {
-    const { text, usage } = await collectText(adapter, {
+    const { text, usage, meta } = await collectText(adapter, {
       model: d.chatModel,
       messages: [{ role: "user", content: "한 단어로만 대답해 주세요: 안녕" }],
-      maxOutputTokens: 32,
+      maxOutputTokens: maxOut,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    const ok = text.trim().length > 0;
     checks.push({
       name: `대화 모델 (${d.chatModel})`,
-      ok: text.trim().length > 0,
-      detail: text.trim() ? `응답: "${text.trim().slice(0, 30)}"${usage ? ` · 입력 ${usage.inputTokens}/출력 ${usage.outputTokens}토큰` : " · usage 정보 없음(비용은 글자 수로 추정됨)"}` : "빈 응답",
+      ok,
+      detail: ok
+        ? `응답: "${text.trim().slice(0, 30)}"${usage ? ` · 입력 ${usage.inputTokens}/출력 ${usage.outputTokens}토큰` : " · usage 정보 없음(비용은 글자 수로 추정됨)"}${meta && meta.reasoningChars > 0 ? " · 추론 사용됨(느릴 수 있음)" : ""}`
+        : explainEmptyResponse(meta, usage, maxOut),
       ms: Date.now() - t1,
     });
   } catch (e) {
@@ -93,6 +99,8 @@ export async function testLlmAction(fd: FormData): Promise<TestResult> {
   if (hint) {
     /* 주소가 잘못됐을 가능성이 가장 크므로 이 힌트를 우선한다 */
   } else if (!chat.ok && !cls.ok && /401|403|invalid|incorrect|unauthor/i.test(chat.detail)) hint = "키가 거절됐습니다. 키와 API 주소가 같은 제공사의 것인지 확인해 보세요.";
+  else if (!chat.ok && d.reasoningEffort && /reasoning|effort|mandatory|unsupported|invalid.*param/i.test(chat.detail)) hint = "이 모델이 추론 강도 설정을 지원하지 않거나 끌 수 없는 것 같습니다. 추론 강도를 '모델 기본값'이나 다른 값(minimal/low)으로 바꿔 보세요.";
+  else if (!chat.ok && /^빈 응답/.test(chat.detail)) hint = "추론(thinking) 모델은 출력 토큰을 추론에 먼저 씁니다. '추론 강도'를 low/minimal로 낮추거나 '최대 출력 토큰'을 늘려서 다시 테스트하세요. 추론을 끌 수 없는 모델도 있습니다(OpenRouter 모델 목록의 reasoning.mandatory).";
   else if (!chat.ok && /404|model/i.test(chat.detail)) hint = "모델 이름이 맞는지, 주소(/v1 까지)가 맞는지 확인해 보세요.";
   else if (chat.ok && !cls.ok && d.structuredOutput) hint = "분류기가 실패했습니다. 제공사가 json_schema 구조화 출력을 지원하지 않을 수 있습니다. '구조화 출력' 체크를 끄고 다시 테스트해 보세요.";
   else if (chat.ok && !cls.ok) hint = "분류기 모델이 판정 JSON 형식을 지키지 못했습니다. 더 지시를 잘 따르는 모델로 바꿔 보세요. 형식이 틀리면 안전 검사가 모든 입력을 차단합니다(fail closed).";

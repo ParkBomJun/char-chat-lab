@@ -2,6 +2,8 @@ import { MockAdapter } from "./mock";
 import { OpenAiCompatAdapter } from "./openai";
 import type { LlmAdapter } from "./types";
 
+import { REASONING_EFFORTS } from "./reasoning";
+
 export type LlmConfig = {
   adapter: LlmAdapter;
   chatModel: string;
@@ -24,6 +26,7 @@ export function getLlm(env: LlmEnv = process.env): LlmConfig {
       adapter: new OpenAiCompatAdapter({
         baseUrl: env.LLM_BASE_URL?.trim() || "https://api.openai.com/v1",
         apiKey: key,
+        reasoningEffort: REASONING_EFFORTS.find((e) => e === env.LLM_REASONING_EFFORT?.trim()),
       }),
       chatModel: model,
       lightModel: env.LLM_CLASSIFIER_MODEL?.trim() || model,

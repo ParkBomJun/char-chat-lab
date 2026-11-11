@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { REASONING_EFFORTS } from "@/lib/llm/reasoning";
 import type { ModelPrice, PricingTable } from "@/lib/pricing";
+import type { StreamMeta, Usage } from "@/lib/llm/types";
 
 /** 서버 안에서만 쓰는 설정(복호화된 키 포함). 화면·클라이언트로 내보내지 않는다. */
 export type LlmSettings = {
@@ -9,6 +11,10 @@ export type LlmSettings = {
   /** 비어 있으면 chatModel을 쓴다 */
   classifierModel: string;
   structuredOutput: boolean;
+  /** 추론 모델의 추론 강도. ""이면 요청에 보내지 않는다(모델 기본값) */
+  reasoningEffort: "" | (typeof REASONING_EFFORTS)[number];
+  /** 대화 응답의 최대 출력 토큰(추론 모델은 추론 토큰이 여기서 먼저 소모됨). 0이면 서버 기본값(MAX_OUTPUT_TOKENS) */
+  maxOutputTokens: number;
   /** 모델 이름 → 단가(USD/100만 토큰). src/config/pricing.json을 덮어쓴다 */
   pricing: Record<string, ModelPrice>;
 };
@@ -28,6 +34,7 @@ export function mergeLlmEnv(env: Env, s: LlmSettings | null): Env {
     LLM_CHAT_MODEL: s.chatModel,
     LLM_CLASSIFIER_MODEL: s.classifierModel,
     LLM_STRUCTURED_OUTPUT: s.structuredOutput ? "on" : "off",
+    LLM_REASONING_EFFORT: s.reasoningEffort || undefined,
   };
   delete out.LLM_PROVIDER;
   return out;
@@ -84,6 +91,8 @@ export type LlmFormInput = {
   chatModel: string;
   classifierModel: string;
   structuredOutput: boolean;
+  reasoningEffort: LlmSettings["reasoningEffort"];
+  maxOutputTokens: number;
   chatPrice: { inputPer1M: number; cachedInputPer1M: number; outputPer1M: number };
   classifierPrice: { inputPer1M: number; cachedInputPer1M: number; outputPer1M: number };
 };
@@ -112,6 +121,14 @@ export function parseLlmForm(fd: FormData): { ok: true; data: LlmFormInput } | {
   if (!r.success) return { ok: false, error: r.error.issues[0].message };
 
   const d = r.data;
+
+  const effort = str(fd, "reasoningEffort").trim();
+  if (effort !== "" && !(REASONING_EFFORTS as readonly string[]).includes(effort)) return { ok: false, error: "추론 강도 값이 올바르지 않습니다." };
+  const rawMax = str(fd, "maxOutputTokens").trim();
+  const maxOutputTokens = rawMax === "" ? 0 : Number(rawMax);
+  if (!Number.isInteger(maxOutputTokens) || (maxOutputTokens !== 0 && (maxOutputTokens < 64 || maxOutputTokens > 65_536))) {
+    return { ok: false, error: "최대 출력 토큰은 0(기본값)이거나 64~65536 사이의 정수여야 합니다." };
+  }
   return {
     ok: true,
     data: {
@@ -120,6 +137,8 @@ export function parseLlmForm(fd: FormData): { ok: true; data: LlmFormInput } | {
       chatModel: d.chatModel,
       classifierModel: d.classifierModel,
       structuredOutput: fd.get("structuredOutput") === "on",
+      reasoningEffort: effort as LlmSettings["reasoningEffort"],
+      maxOutputTokens,
       chatPrice: { inputPer1M: d.chat.in, cachedInputPer1M: d.chat.cached, outputPer1M: d.chat.out },
       classifierPrice: { inputPer1M: d.cls.in, cachedInputPer1M: d.cls.cached, outputPer1M: d.cls.out },
     },
@@ -137,6 +156,8 @@ export function toSettings(input: LlmFormInput, apiKey: string): LlmSettings {
     chatModel: input.chatModel,
     classifierModel: input.classifierModel,
     structuredOutput: input.structuredOutput,
+    reasoningEffort: input.reasoningEffort,
+    maxOutputTokens: input.maxOutputTokens,
     pricing,
   };
 }
@@ -167,4 +188,27 @@ export function baseUrlHint(baseUrl: string): string | null {
     return `OpenRouter의 주소는 ${PRESETS.openrouter.baseUrl} 입니다(지금 입력한 경로는 ${u.pathname || "/"}).`;
   }
   return null;
+}
+
+/**
+ * 본문이 비어 왔을 때 원인 설명. 추론 모델은 출력 토큰 한도(max_tokens)를 추론에 먼저 써서,
+ * 한도가 작으면 finish_reason=length와 빈 본문이 온다. 사용자에게 무엇을 바꿔야 하는지 알려 준다.
+ */
+export function explainEmptyResponse(meta: StreamMeta | null, usage: Usage | null, maxOutputTokens: number): string {
+  const parts: string[] = [];
+  if (meta?.finishReason) parts.push(`finish_reason=${meta.finishReason}`);
+  if (meta && meta.reasoningChars > 0) parts.push(`추론 ${meta.reasoningChars.toLocaleString("ko-KR")}자 수신`);
+  if (usage) parts.push(`출력 ${usage.outputTokens}토큰 사용`);
+  const detail = parts.length ? ` (${parts.join(", ")})` : "";
+
+  if (meta?.finishReason === "length") {
+    return `빈 응답${detail}: 출력 토큰 한도(${maxOutputTokens})를 추론에 다 써서 본문이 나오지 못했습니다. 최대 출력 토큰을 늘리거나 추론 강도를 낮추세요.`;
+  }
+  if (meta && meta.reasoningChars > 0) {
+    return `빈 응답${detail}: 모델이 추론만 하고 본문을 보내지 않았습니다. 추론 강도를 낮추거나 최대 출력 토큰을 늘려 보세요.`;
+  }
+  if (usage && usage.outputTokens > 0) {
+    return `빈 응답${detail}: 토큰은 소비됐지만 본문이 없습니다. 추론에 쓰였을 가능성이 있으니 최대 출력 토큰을 늘리거나 추론 강도를 낮추세요.`;
+  }
+  return `빈 응답${detail}: 모델이 아무 내용도 보내지 않았습니다. 모델 이름이 맞는지, 제공사가 일시적으로 실패한 것은 아닌지 확인하세요.`;
 }

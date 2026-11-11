@@ -37,6 +37,8 @@ export default async function SettingsPage() {
           chatModel,
           classifierModel,
           structuredOutput: settings ? settings.structuredOutput : process.env.LLM_STRUCTURED_OUTPUT !== "off",
+          reasoningEffort: settings ? settings.reasoningEffort : process.env.LLM_REASONING_EFFORT?.trim() ?? "",
+          maxOutputTokens: settings ? settings.maxOutputTokens : 0,
           keyHint: maskKey(settings?.apiKey),
           chatPrice: { in: p(chatModel).inputPer1M, cached: p(chatModel).cachedInputPer1M, out: p(chatModel).outputPer1M },
           classifierPrice: { in: p(classifierModel || chatModel).inputPer1M, cached: p(classifierModel || chatModel).cachedInputPer1M, out: p(classifierModel || chatModel).outputPer1M },

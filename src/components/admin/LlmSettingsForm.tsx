@@ -10,6 +10,8 @@ export type LlmFormInitial = {
   chatModel: string;
   classifierModel: string;
   structuredOutput: boolean;
+  reasoningEffort: string;
+  maxOutputTokens: number;
   /** 저장된 키의 끝 4자리 표시(없으면 null). 키 원문은 클라이언트에 오지 않는다. */
   keyHint: string | null;
   chatPrice: { in: number; cached: number; out: number };
@@ -61,7 +63,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
     setTest(null);
     setPresetNote(
       k === "openrouter"
-        ? "OpenRouter: 모델 이름은 '제공사/모델' 형식입니다(openrouter.ai/models에서 복사). 모델마다 구조화 출력 지원이 달라 기본으로 껐습니다. 키는 OpenRouter 계정의 API 키입니다."
+        ? "OpenRouter: 모델 이름은 '제공사/모델' 형식입니다(openrouter.ai/models에서 복사). 모델마다 구조화 출력 지원이 달라 기본으로 껐습니다. Gemini 같은 추론(thinking) 모델은 응답이 느리거나 빈 응답이 올 수 있으니 아래 '추론 강도'를 low나 minimal로 두고 연결 테스트를 해 보세요."
         : "OpenAI 주소로 채웠습니다.",
     );
   };
@@ -98,6 +100,25 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
         <input type="checkbox" name="structuredOutput" defaultChecked={initial.structuredOutput} />
         분류기에 구조화 출력(json_schema) 사용 — 제공사가 지원하지 않으면 끄세요
       </label>
+
+      <div className="inline">
+        <label>
+          추론(reasoning) 강도 <span className="who">(추론 모델이 느리거나 빈 응답을 줄 때 낮추세요)</span>
+          <select name="reasoningEffort" defaultValue={initial.reasoningEffort}>
+            <option value="">모델 기본값(보내지 않음)</option>
+            <option value="none">none — 끄기(끌 수 없는 모델은 오류)</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <label>
+          최대 출력 토큰 <span className="who">(0 = 서버 기본값. 추론 토큰도 여기서 소모됨)</span>
+          <input name="maxOutputTokens" type="number" min={0} step={1} defaultValue={initial.maxOutputTokens} />
+        </label>
+      </div>
+      <p className="who">추론 강도는 OpenRouter의 <code>reasoning.effort</code> 규약으로 전송됩니다. 다른 제공사가 이 필드를 거부하면 &quot;모델 기본값&quot;으로 두세요.</p>
 
       <fieldset className="price-set">
         <legend>단가 (USD / 100만 토큰) — 비용 계산용, 모르면 0</legend>

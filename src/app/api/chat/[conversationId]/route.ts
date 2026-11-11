@@ -5,7 +5,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { loadConfig } from "@/lib/config";
 import { resolveRuntime } from "@/lib/llm/runtime";
-import { LlmError, type Usage } from "@/lib/llm/types";
+import { LlmError, type StreamMeta, type Usage } from "@/lib/llm/types";
+import { explainEmptyResponse } from "@/lib/llm-settings";
 import { assemblePrompt } from "@/lib/chat/assemble";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
@@ -170,6 +171,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
 
       const guard = new StreamGuard();
       let usage: Usage | null = null;
+      let streamMeta: StreamMeta | null = null;
       let ttftMs: number | null = null;
       let failed = false;
       let streamBlockedCategory: string | null = null;
@@ -178,7 +180,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
         for await (const ev of adapter.stream({
           model: chatModel,
           messages: assembled.messages,
-          maxOutputTokens: config.maxOutputTokens,
+          maxOutputTokens: rt.maxOutputTokens,
           signal: upstream.signal,
         })) {
           if (ev.type === "delta") {
@@ -192,6 +194,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             send("delta", { text: ev.text });
           } else {
             usage = ev.usage;
+            streamMeta = ev.meta ?? null;
           }
         }
       } catch (e) {
@@ -260,6 +263,8 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
           console.error("[chat] UsageLog 기록 실패", e);
         }
       } else if (!failed) {
+        // 원인(추론 모델의 토큰 소진 등)은 서버 로그에 남기고, 사용자에게는 일반 문구를 보인다
+        console.error("[chat] " + explainEmptyResponse(streamMeta, usage, rt.maxOutputTokens), `(model=${chatModel})`);
         send("error", { message: "빈 응답이 왔어요. 다시 시도해 주세요." });
       }
 

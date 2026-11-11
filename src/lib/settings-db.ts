@@ -11,6 +11,9 @@ const storedSchema = z.object({
   chatModel: z.string(),
   classifierModel: z.string(),
   structuredOutput: z.boolean(),
+  // 이 필드들이 생기기 전에 저장된 설정도 읽을 수 있게 기본값을 둔다
+  reasoningEffort: z.enum(["", "none", "minimal", "low", "medium", "high"]).default(""),
+  maxOutputTokens: z.number().int().default(0),
   pricing: z.record(z.string(), z.object({ inputPer1M: z.number(), cachedInputPer1M: z.number(), outputPer1M: z.number() })),
 });
 
