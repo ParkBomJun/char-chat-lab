@@ -139,7 +139,8 @@ model UsageLog {
   cachedInputTokens Int       @default(0)
   outputTokens      Int
   usageEstimated    Boolean   @default(false) // true면 제공사 usage가 없어 글자 수로 추정한 값
-  estCost           Decimal
+  estCost           Decimal // 단가표 기반 추정(비교용)
+  actualCost        Decimal? // 제공사 usage.cost(실제 청구액). 있으면 비용 표시에서 우선
   ttftMs            Int? // 첫 토큰까지
   totalMs           Int
   blockTokens       Json? // 조립기가 추정한 블록별 토큰(fixed/summary/lorebook/recent/input/total)

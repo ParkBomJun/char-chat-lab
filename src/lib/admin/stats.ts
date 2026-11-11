@@ -12,8 +12,6 @@ export const fmtCost = (v: number) => (v === 0 ? "$0" : `$${v.toFixed(v < 0.01 ?
 export const fmtMs = (v: number | null) => (v === null || Number.isNaN(v) ? "—" : `${Math.round(v)}ms`);
 export const fmtInt = (v: number) => v.toLocaleString("ko-KR");
 
-const num = (d: Prisma.Decimal | number | null | undefined) => (d === null || d === undefined ? 0 : Number(d));
-
 /** 조회 구간의 시작: KST 오늘 자정에서 (days-1)일 전. days=1이면 오늘만. */
 export function periodStart(days: number, now: Date = new Date()): Date {
   return new Date(kstDayStart(now).getTime() - (days - 1) * 24 * 60 * 60 * 1000);
@@ -30,7 +28,7 @@ export async function getDashboard(days: number, now: Date = new Date()) {
       prisma.usageLog.groupBy({
         by: ["kind", "model"],
         where: inRange,
-        _sum: { inputTokens: true, cachedInputTokens: true, outputTokens: true, estCost: true },
+        _sum: { inputTokens: true, cachedInputTokens: true, outputTokens: true },
         _count: { _all: true },
       }),
       // 적중률은 제공사가 usage를 준 행만으로 계산한다(추정 행은 캐시 토큰을 모르므로 0으로 들어가 편향시킨다)
@@ -53,6 +51,16 @@ export async function getDashboard(days: number, now: Date = new Date()) {
       }),
     ]);
 
+  // 비용: 제공사가 준 실제 청구액(actualCost)이 있으면 그것을, 없으면 단가표 추정(estCost)을 쓴다(행 단위로 coalesce).
+  const costRows = await prisma.$queryRaw<{ kind: string; model: string; cost: number; est: number; actual_rows: number }[]>(Prisma.sql`
+    SELECT kind::text AS kind, model,
+           coalesce(sum(coalesce("actualCost", "estCost")), 0)::float AS cost,
+           coalesce(sum("estCost"), 0)::float AS est,
+           (count("actualCost"))::int AS actual_rows
+    FROM "UsageLog" WHERE "createdAt" >= ${since}
+    GROUP BY kind, model`);
+  const costOf = new Map(costRows.map((c) => [`${c.kind}\u0000${c.model}`, c]));
+
   const latency = await prisma.$queryRaw<
     { n: number; avg_ttft: number | null; p50_ttft: number | null; p95_ttft: number | null; avg_total: number | null; p95_total: number | null }[]
   >(Prisma.sql`
@@ -68,22 +76,32 @@ export async function getDashboard(days: number, now: Date = new Date()) {
   const daily = await prisma.$queryRaw<{ day: string; chats: number; cost: number; input: number; cached: number }[]>(Prisma.sql`
     SELECT to_char((("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS day,
            (count(*) FILTER (WHERE kind = 'CHAT'))::int AS chats,
-           coalesce(sum("estCost"), 0)::float AS cost,
+           coalesce(sum(coalesce("actualCost", "estCost")), 0)::float AS cost,
            coalesce(sum("inputTokens") FILTER (WHERE kind = 'CHAT' AND NOT "usageEstimated"), 0)::float AS input,
            coalesce(sum("cachedInputTokens") FILTER (WHERE kind = 'CHAT' AND NOT "usageEstimated"), 0)::float AS cached
     FROM "UsageLog" WHERE "createdAt" >= ${since}
     GROUP BY 1 ORDER BY 1 DESC`);
 
-  const rows = byKindModel.map((r) => ({
-    kind: r.kind,
-    model: r.model,
-    calls: r._count._all,
-    input: r._sum.inputTokens ?? 0,
-    cached: r._sum.cachedInputTokens ?? 0,
-    output: r._sum.outputTokens ?? 0,
-    cost: num(r._sum.estCost),
-  }));
+  const rows = byKindModel.map((r) => {
+    const c = costOf.get(`${r.kind}\u0000${r.model}`);
+    return {
+      kind: r.kind,
+      model: r.model,
+      calls: r._count._all,
+      input: r._sum.inputTokens ?? 0,
+      cached: r._sum.cachedInputTokens ?? 0,
+      output: r._sum.outputTokens ?? 0,
+      cost: c?.cost ?? 0,
+      /** 단가표 기반 추정(비교용) */
+      estCost: c?.est ?? 0,
+      /** 제공사 실제 청구액이 기록된 호출 수 */
+      actualRows: c?.actual_rows ?? 0,
+    };
+  });
   const totalCost = rows.reduce((a, r) => a + r.cost, 0);
+  const totalEstCost = rows.reduce((a, r) => a + r.estCost, 0);
+  const actualCalls = rows.reduce((a, r) => a + r.actualRows, 0);
+  const totalCalls = rows.reduce((a, r) => a + r.calls, 0);
   const exactInput = exactChat._sum.inputTokens ?? 0;
   const exactCached = exactChat._sum.cachedInputTokens ?? 0;
   const l = latency[0];
@@ -96,6 +114,9 @@ export async function getDashboard(days: number, now: Date = new Date()) {
     totalUsers,
     activeUsers: activeUsers.length,
     totalCost,
+    totalEstCost,
+    actualCalls,
+    totalCalls,
     rows,
     cache: { rate: cacheHitRate(exactCached, exactInput), input: exactInput, cached: exactCached, exactRows: exactChat._count._all, estimatedRows },
     latency: {

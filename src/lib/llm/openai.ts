@@ -11,7 +11,9 @@ type OpenAiChunk = {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
-    prompt_tokens_details?: { cached_tokens?: number } | null;
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } | null;
+    /** OpenRouter: 실제 청구액(USD) */
+    cost?: number | null;
   } | null;
 };
 
@@ -103,6 +105,10 @@ export class OpenAiCompatAdapter implements LlmAdapter {
             inputTokens: parsed.usage.prompt_tokens ?? 0,
             cachedInputTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
             outputTokens: parsed.usage.completion_tokens ?? 0,
+            ...(typeof parsed.usage.prompt_tokens_details?.cache_write_tokens === "number" && parsed.usage.prompt_tokens_details.cache_write_tokens > 0
+              ? { cacheWriteTokens: parsed.usage.prompt_tokens_details.cache_write_tokens }
+              : {}),
+            ...(typeof parsed.usage.cost === "number" && Number.isFinite(parsed.usage.cost) && parsed.usage.cost >= 0 ? { cost: parsed.usage.cost } : {}),
           };
         }
       }

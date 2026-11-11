@@ -13,11 +13,11 @@ import { mergeLlmEnv } from "../src/lib/llm-settings";
 import { SseParser } from "../src/lib/sse";
 import { estimateTokens } from "../src/lib/tokens";
 import type { ChatMessage } from "../src/lib/llm/types";
-import { comparePrefix, firstDiffSnippet, sha } from "./cache-probe-lib";
+import { comparePrefix, firstDiffSnippet, makeFiller, sha } from "./cache-probe-lib";
 
 const { values: args, positionals } = parseArgs({
   allowPositionals: true,
-  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" } },
+  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" }, only: { type: "string" }, "chars-per-token": { type: "string", default: "4" } },
 });
 const cmd = positionals[0] ?? "dump";
 
@@ -99,7 +99,7 @@ function dump() {
 }
 
 // ── 실제 호출 실험 ───────────────────────────────────────────────────────────
-type Probe = { label: string; promptTokens: number | null; completion: number | null; cached: number | null; rawUsage: unknown; id: string | null; ms: number; note?: string };
+type Probe = { label: string; promptTokens: number | null; completion: number | null; cached: number | null; cacheWrite?: number | null; cost?: number | null; rawUsage: unknown; id: string | null; ms: number; note?: string };
 
 async function callOnce(label: string, base: string, key: string, body: Record<string, unknown>, stream: boolean, extraHeaders: Record<string, string> = {}): Promise<Probe> {
   const t0 = Date.now();
@@ -132,8 +132,10 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
     id = j.id ?? null;
     usage = j.usage ?? null;
   }
-  const details = (usage?.prompt_tokens_details ?? null) as { cached_tokens?: number } | null;
+  const details = (usage?.prompt_tokens_details ?? null) as { cached_tokens?: number; cache_write_tokens?: number } | null;
   return {
+    cacheWrite: details?.cache_write_tokens ?? null,
+    cost: typeof usage?.cost === "number" ? usage.cost : null,
     label,
     promptTokens: (usage?.prompt_tokens as number) ?? null,
     completion: (usage?.completion_tokens as number) ?? null,
@@ -147,7 +149,14 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
 async function probe() {
   if (!args.real) {
     console.log("실제 호출 실험입니다(비용 발생). 의도했다면 --real 을 붙여 다시 실행하세요:  npm run cache:probe -- --real");
-    console.log("호출 계획: 약 7회(스트리밍 동일 요청 2회, 비스트리밍 동일 요청 2회, session_id 동일 요청 2회, 접두사가 이어지는 후속 요청 1회). 각 요청 max_tokens=64라 출력 비용은 거의 없고 입력 약 1.5~2.5K토큰×7입니다.");
+    console.log("호출 계획(전부 실행 시 15회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
+    console.log("  E1  스트리밍 동일 요청 2회 + 비스트리밍 동일 요청 2회   (입력 약 1.9K토큰 × 4)");
+    console.log("  E2  session_id 동일 요청 2회                          (약 1.9K × 2)");
+    console.log("  E3  접두사가 이어지는 후속 1회                         (약 2K × 1)");
+    console.log("  E4  길이 테스트: 고정 블록 + 중립 더미 텍스트, 약 4,500토큰 ×2회, 약 9,000토큰 ×2회 (session_id 포함)  → 입력 약 4.5K×2 + 9K×2");
+    console.log("  E5  명시적 캐시: 고정 블록 메시지에 cache_control ephemeral, 동일 요청 2회 (session_id 포함, 약 1.9K×2)");
+    console.log("  E5b 같은 방식인데 4,500토큰 규모(문서상 Gemini 명시적 캐시 쓰기 최소 길이가 4096토큰이라 E5만으로는 판단이 어려움) 2회");
+    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회)");
     return;
   }
   if (process.env.APP_ENV === "test" && process.env.ALLOW_REAL_LLM !== "1") throw new Error("APP_ENV=test에서는 ALLOW_REAL_LLM=1 없이 실제 호출을 하지 않습니다.");
@@ -182,21 +191,67 @@ async function probe() {
     await sleep(gap);
   };
 
-  await run("E1-1 스트리밍 동일요청 첫번째", A, true);
-  await run("E1-2 스트리밍 동일요청 두번째", A, true);
-  await run("E1n-1 비스트리밍 첫번째", A, false);
-  await run("E1n-2 비스트리밍 두번째", A, false);
+  const only = new Set((args.only ?? "E1,E2,E3,E4,E5").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+  const want = (k: string) => only.has(k);
   const sid = args["session-id"] ?? `cache-probe-${Date.now()}`;
-  await run("E2-1 session_id 첫번째", A, true, { session_id: sid });
-  await run("E2-2 session_id 두번째", A, true, { session_id: sid });
-  await run("E3 접두사가 이어지는 후속(A+새 턴)", B, true, { session_id: sid });
 
-  console.log("실험                           prompt  cached  completion   ms   id");
-  for (const r of results) console.log(`${r.label.padEnd(32)} ${String(r.promptTokens ?? "-").padStart(6)} ${String(r.cached ?? "(필드 없음)").padStart(7)} ${String(r.completion ?? "-").padStart(10)} ${String(r.ms).padStart(5)}  ${r.id ?? "-"}${r.note ? "  ⚠ " + r.note : ""}`);
+  if (want("E1")) {
+    await run("E1-1 스트리밍 동일요청 첫번째", A, true);
+    await run("E1-2 스트리밍 동일요청 두번째", A, true);
+    await run("E1n-1 비스트리밍 첫번째", A, false);
+    await run("E1n-2 비스트리밍 두번째", A, false);
+  }
+  if (want("E2")) {
+    await run("E2-1 session_id 첫번째", A, true, { session_id: sid });
+    await run("E2-2 session_id 두번째", A, true, { session_id: sid });
+  }
+  if (want("E3")) await run("E3 접두사가 이어지는 후속(A+새 턴)", B, true, { session_id: sid });
+
+  // E4: 고정 블록 바로 뒤에 중립적인 더미 텍스트를 붙여 길이만 키운다(내용은 캐릭터·안전과 무관한 영문 일반 문장).
+  // 토큰 수는 '글자 수 ÷ chars-per-token(기본 4)'으로 맞추는 근사치이므로, 실제 값은 표의 prompt 열(제공사가 센 값)을 보라.
+  const cpt = Math.max(1, Number(args["chars-per-token"]) || 4);
+  const FIXED_TOKENS_GUESS = 1300; // 이전 실측(첫 턴 총 1,484토큰 중 고정 블록 약 1.3K)
+  const withFiller = (targetTokens: number): ChatMessage[] => {
+    const need = Math.max(0, targetTokens - FIXED_TOKENS_GUESS) * cpt;
+    return [A[0], { role: "system", content: `# 참고 자료(더미, 의미 없음)\n${makeFiller(need)}` }, ...A.slice(1)];
+  };
+  if (want("E4")) {
+    for (const target of [4500, 9000]) {
+      const m = withFiller(target);
+      const sidL = `${sid}-len${target}`;
+      await run(`E4 ${target}토큰급 첫번째`, m, true, { session_id: sidL });
+      await run(`E4 ${target}토큰급 두번째`, m, true, { session_id: sidL });
+    }
+  }
+
+  // E5: 명시적 캐시. OpenRouter 문서(Gemini): cache_control은 content part 배열 안에 넣어야 하고, 마지막 breakpoint만 쓰이며,
+  // 첫 system 메시지에 붙이면 그 메시지까지가 캐시 대상이다. 문자열 content에 붙이는 예시는 문서에 없다.
+  const withCacheControl = (msgs: ChatMessage[]): unknown[] => [
+    { role: "system", content: [{ type: "text", text: msgs[0].content, cache_control: { type: "ephemeral" } }] },
+    ...msgs.slice(1),
+  ];
+  if (want("E5")) {
+    const m = withCacheControl(A);
+    await run("E5 cache_control 첫번째", m as ChatMessage[], true, { session_id: `${sid}-e5` });
+    await run("E5 cache_control 두번째", m as ChatMessage[], true, { session_id: `${sid}-e5` });
+  }
+  if (want("E5B") || want("E5")) {
+    // 문서상 Gemini 명시적 캐시 쓰기 최소 길이(4096토큰)를 넘기려고, 더미를 고정 블록과 같은 system 메시지에 합쳐 breakpoint를 붙인다.
+    const big = withFiller(4500);
+    const merged: ChatMessage[] = [{ role: "system", content: `${big[0].content}\n\n${big[1].content}` }, ...big.slice(2)];
+    const m = withCacheControl(merged);
+    await run("E5b 4500토큰급+cache_control 첫번째", m as ChatMessage[], true, { session_id: `${sid}-e5b` });
+    await run("E5b 4500토큰급+cache_control 두번째", m as ChatMessage[], true, { session_id: `${sid}-e5b` });
+  }
+
+  console.log("실험                                    prompt  cached  cacheWr  cost($)      completion   ms   id");
+  for (const r of results) console.log(`${r.label.padEnd(40)} ${String(r.promptTokens ?? "-").padStart(6)} ${String(r.cached ?? "(없음)").padStart(7)} ${String(r.cacheWrite ?? "-").padStart(8)}  ${String(r.cost ?? "-").padEnd(11)} ${String(r.completion ?? "-").padStart(10)} ${String(r.ms).padStart(5)}  ${r.id ?? "-"}${r.note ? "  ⚠ " + r.note : ""}`);
   console.log("\n── usage 원문(마지막 청크/응답) ──");
   for (const r of results) console.log(`${r.label}: ${JSON.stringify(r.rawUsage)}`);
   console.log("\n해석 가이드: E1-2의 cached가 0보다 크면 이 모델은 캐시를 지원하고 우리 쪽 보고도 정상. E1-2가 0이고 E2-2(session_id)만 크면 라우팅 문제(session_id 필요).");
   console.log("E1/E2 모두 0이고 E1n(비스트리밍)만 크면 스트리밍 usage에 cached가 빠지는 것. 모두 0이면 모델 최소 길이 미달 또는 해당 모델/엔드포인트가 암시적 캐시 미지원.");
+  console.log("E4: 4,500토큰급 두번째에서 cached가 생기고 1.9K급(E1/E2)에서만 0이면 최소 길이 문제. 9,000토큰급에서만 생기면 최소 길이가 더 크다. 전부 0이면 길이 때문이 아니다.");
+  console.log("E5/E5b: 두번째 요청에서 cached>0 이거나 첫번째에서 cacheWr>0 이면 명시적 캐시가 동작. 에러(HTTP 4xx)나 둘 다 0이면 이 모델/경로에서 cache_control이 무시되거나 최소 길이 미달(note/원문 usage 확인). cost 열은 제공사가 청구한 실제 금액이라 캐시 쓰기/읽기 단가 확인에도 쓴다.");
 }
 
 (cmd === "dump" ? Promise.resolve(dump()) : probe()).catch((e) => {

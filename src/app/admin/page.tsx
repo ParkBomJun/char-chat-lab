@@ -31,7 +31,15 @@ export default async function AdminHome(props: PageProps<"/admin">) {
         <Stat label="사용자 메시지" value={fmtInt(d.userMessages)} />
         <Stat label="새 대화" value={fmtInt(d.conversations)} />
         <Stat label="활성 사용자 / 전체" value={`${d.activeUsers} / ${d.totalUsers}`} />
-        <Stat label="추정 비용 합계" value={fmtCost(d.totalCost)} sub={unpriced ? "단가가 0이거나 미설정" : undefined} />
+        <Stat
+          label={d.actualCalls > 0 ? "비용 합계(실제 청구 우선)" : "추정 비용 합계"}
+          value={fmtCost(d.totalCost)}
+          sub={
+            d.actualCalls > 0
+              ? `실제 청구액 기록 ${d.actualCalls}/${d.totalCalls}건 · 단가표 추정 ${fmtCost(d.totalEstCost)}`
+              : unpriced ? "단가가 0이거나 미설정" : undefined
+          }
+        />
         <Stat
           label="캐시 적중률(대화)"
           value={fmtPct(d.cache.rate)}
@@ -50,22 +58,23 @@ export default async function AdminHome(props: PageProps<"/admin">) {
       <h2>종류·모델별 사용량</h2>
       <table className="admin-table">
         <thead>
-          <tr><th>종류</th><th>모델</th><th>호출</th><th>입력 토큰</th><th>캐시 토큰</th><th>출력 토큰</th><th>추정 비용</th></tr>
+          <tr><th>종류</th><th>모델</th><th>호출</th><th>입력 토큰</th><th>캐시 토큰</th><th>출력 토큰</th><th>비용</th><th>단가표 추정</th></tr>
         </thead>
         <tbody>
-          {d.rows.length === 0 && <tr><td colSpan={7}>기록이 없습니다.</td></tr>}
+          {d.rows.length === 0 && <tr><td colSpan={8}>기록이 없습니다.</td></tr>}
           {d.rows.map((r) => (
             <tr key={`${r.kind}-${r.model}`}>
               <td>{r.kind}</td><td>{r.model}</td><td>{fmtInt(r.calls)}</td>
-              <td>{fmtInt(r.input)}</td><td>{fmtInt(r.cached)}</td><td>{fmtInt(r.output)}</td><td>{fmtCost(r.cost)}</td>
+              <td>{fmtInt(r.input)}</td><td>{fmtInt(r.cached)}</td><td>{fmtInt(r.output)}</td><td>{fmtCost(r.cost)}{r.actualRows > 0 && r.actualRows < r.calls ? " *" : ""}</td><td>{fmtCost(r.estCost)}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      <p className="period">비용은 제공사가 알려준 실제 청구액(usage.cost)이 있는 호출은 그 값을, 없으면 단가표 추정값을 씁니다. * = 일부 호출만 실제 청구액이 기록됨.</p>
 
       <h2>일별 (KST)</h2>
       <table className="admin-table">
-        <thead><tr><th>날짜</th><th>대화 호출</th><th>추정 비용</th><th>캐시 적중률</th></tr></thead>
+        <thead><tr><th>날짜</th><th>대화 호출</th><th>비용</th><th>캐시 적중률</th></tr></thead>
         <tbody>
           {d.daily.length === 0 && <tr><td colSpan={4}>기록이 없습니다.</td></tr>}
           {d.daily.map((r) => (

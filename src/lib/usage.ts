@@ -29,6 +29,8 @@ export type UsageRowData = {
   usageEstimated: boolean;
   /** Prisma Decimal에 문자열로 넘긴다(부동소수 오차 방지) */
   estCost: string;
+  /** 제공사가 준 실제 청구액(없으면 null). 있으면 비용 표시는 이 값을 우선한다. estCost는 비교용으로 유지 */
+  actualCost: string | null;
   ttftMs: number | null;
   totalMs: number;
   blockTokens: (BlockTokens & Partial<PromptMeta>) | null;
@@ -48,6 +50,7 @@ export function buildUsageRow(i: UsageRowInput, table: PricingTable = pricing): 
     outputTokens: usage.outputTokens,
     usageEstimated: i.usage === null,
     estCost: cost.toFixed(8),
+    actualCost: i.usage?.cost !== undefined ? i.usage.cost.toFixed(8) : null,
     ttftMs: i.ttftMs,
     totalMs: i.totalMs,
     blockTokens: i.blockTokens ? { ...i.blockTokens, ...i.promptMeta } : null,

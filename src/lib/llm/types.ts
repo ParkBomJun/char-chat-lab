@@ -5,6 +5,10 @@ export type Usage = {
   /** 제공사가 알려주는 캐시된 입력 토큰. 모르면 0 */
   cachedInputTokens: number;
   outputTokens: number;
+  /** 캐시에 새로 쓴 입력 토큰(prompt_tokens에 포함). 모르면 undefined */
+  cacheWriteTokens?: number;
+  /** 제공사가 알려주는 실제 청구액(USD). OpenRouter의 usage.cost. 없으면 undefined */
+  cost?: number;
 };
 
 export type LlmRequest = {

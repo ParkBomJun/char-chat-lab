@@ -14,7 +14,7 @@ const storedSchema = z.object({
   // 이 필드들이 생기기 전에 저장된 설정도 읽을 수 있게 기본값을 둔다
   reasoningEffort: z.enum(["", "none", "minimal", "low", "medium", "high"]).default(""),
   maxOutputTokens: z.number().int().default(0),
-  pricing: z.record(z.string(), z.object({ inputPer1M: z.number(), cachedInputPer1M: z.number(), outputPer1M: z.number() })),
+  pricing: z.record(z.string(), z.object({ inputPer1M: z.number(), cachedInputPer1M: z.number(), outputPer1M: z.number(), cacheWritePer1M: z.number().optional() })),
 });
 
 export type StoredView = { settings: LlmSettings | null; /** 저장돼 있는데 복호화할 수 없음(AUTH_SECRET이 바뀜 등) */ keyUnreadable: boolean };

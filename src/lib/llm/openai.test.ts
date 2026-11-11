@@ -63,6 +63,21 @@ describe("OpenAiCompatAdapter", () => {
     expect(events[0]).toEqual({ type: "delta", text: "한글" });
   });
 
+  it("usage.cost(OpenRouter 실제 청구액)를 읽는다. 없거나 음수면 생략", async () => {
+    const run = async (usage: Record<string, unknown>) => {
+      const adapter = new OpenAiCompatAdapter({
+        baseUrl: "http://x/v1",
+        apiKey: "k",
+        fetchImpl: async () => sseResponse([chunk({ choices: [], usage }), "data: [DONE]\n\n"]),
+      });
+      const events = await collect(adapter.stream({ model: "m", messages: [{ role: "user", content: "hi" }] }));
+      return (events.at(-1) as { usage: Record<string, unknown> }).usage;
+    };
+    expect(await run({ prompt_tokens: 10, completion_tokens: 1, cost: 0.000123 })).toMatchObject({ cost: 0.000123 });
+    expect(await run({ prompt_tokens: 10, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 6 } })).toMatchObject({ cacheWriteTokens: 6 });
+    expect(await run({ prompt_tokens: 10, completion_tokens: 1 })).not.toHaveProperty("cost");
+    expect(await run({ prompt_tokens: 10, completion_tokens: 1, cost: -1 })).not.toHaveProperty("cost");
+  });
   it("usage가 없으면 null", async () => {
     const adapter = new OpenAiCompatAdapter({
       baseUrl: "http://x",

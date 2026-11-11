@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePrefix, firstDiffSnippet, sha } from "./cache-probe-lib";
+import { comparePrefix, firstDiffSnippet, makeFiller, sha } from "./cache-probe-lib";
 
 const m = (role: "system" | "user" | "assistant", content: string) => ({ role, content });
 
@@ -31,5 +31,16 @@ describe("진단 헬퍼", () => {
     expect(firstDiffSnippet("abcdef", "abcXef", 2)).toContain("위치 3");
     expect(sha("x")).toHaveLength(12);
     expect(sha("x")).not.toBe(sha("y"));
+  });
+});
+
+describe("makeFiller", () => {
+  it("정확한 길이, 결정적, 문장마다 달라 반복되지 않는다", () => {
+    const a = makeFiller(5000);
+    expect(a.length).toBe(5000);
+    expect(makeFiller(5000)).toBe(a);
+    expect(makeFiller(0)).toBe("");
+    const lines = a.split("\n").filter(Boolean);
+    expect(new Set(lines).size).toBe(lines.length);
   });
 });
