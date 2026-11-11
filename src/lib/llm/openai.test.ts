@@ -83,6 +83,7 @@ describe("OpenAiCompatAdapter", () => {
     const adapter = new OpenAiCompatAdapter({
       baseUrl: "http://x/v1",
       apiKey: "k",
+      explicitCache: true,
       fetchImpl: async (_u, init) => {
         body = JSON.parse(String(init!.body));
         return sseResponse(["data: [DONE]\n\n"]);
@@ -94,6 +95,20 @@ describe("OpenAiCompatAdapter", () => {
       { role: "user", content: "U" },
     ]);
     expect(JSON.stringify(body)).not.toContain("cacheBreakpoint");
+  });
+  it("cache_control은 openrouter.ai 주소에서만 기본 허용, 그 밖의 주소에서는 표시를 떼고 문자열 content로 보낸다", async () => {
+    const send = async (baseUrl: string) => {
+      let body: { messages: { content: unknown }[] } = { messages: [] };
+      const adapter = new OpenAiCompatAdapter({ baseUrl, apiKey: "k", fetchImpl: async (_u, init) => { body = JSON.parse(String(init!.body)); return sseResponse(["data: [DONE]\n\n"]); } });
+      await collect(adapter.stream({ model: "m", messages: [{ role: "system", content: "S", cacheBreakpoint: true }, { role: "user", content: "U" }] }));
+      return { body, supports: adapter.supportsExplicitCache };
+    };
+    const or = await send("https://openrouter.ai/api/v1");
+    expect(or.supports).toBe(true);
+    expect(Array.isArray(or.body.messages[0].content)).toBe(true);
+    const oa = await send("https://api.openai.com/v1");
+    expect(oa.supports).toBe(false);
+    expect(oa.body.messages[0].content).toBe("S");
   });
   it("usage가 없으면 null", async () => {
     const adapter = new OpenAiCompatAdapter({

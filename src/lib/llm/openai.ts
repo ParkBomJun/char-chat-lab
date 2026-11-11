@@ -27,6 +27,8 @@ export type OpenAiAdapterOptions = {
    * 추론 모델은 출력 토큰 한도를 추론에 먼저 써 버려 본문이 비어 올 수 있어, 낮추거나 끄는 용도다.
    */
   reasoningEffort?: string;
+  /** cache_control 전송 허용(기본: 주소가 openrouter.ai일 때만) */
+  explicitCache?: boolean;
   /** 테스트용 주입 */
   fetchImpl?: typeof fetch;
 };
@@ -36,15 +38,18 @@ export type OpenAiAdapterOptions = {
  * (OpenRouter 문서: cache_control은 배열 형태의 content part에만 예시가 있고, Gemini는 마지막 breakpoint만 사용).
  * 내부 표시 필드는 제공사로 새어 나가지 않게 항상 제거한다.
  */
-export function toWireMessage(m: ChatMessage): { role: string; content: string | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] } {
-  if (!m.cacheBreakpoint) return { role: m.role, content: m.content };
+export function toWireMessage(m: ChatMessage, allowCache = true): { role: string; content: string | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] } {
+  if (!m.cacheBreakpoint || !allowCache) return { role: m.role, content: m.content };
   return { role: m.role, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] };
 }
 
 /** OpenAI 호환 Chat Completions 스트리밍 어댑터. */
 export class OpenAiCompatAdapter implements LlmAdapter {
   readonly name = "openai-compat";
-  readonly supportsExplicitCache = false;
+  /** cache_control은 OpenRouter 문서로 확인한 경로에서만 보낸다(다른 OpenAI 호환 서버는 모르는 필드를 거부할 수 있다). opts.explicitCache로 강제 가능 */
+  get supportsExplicitCache(): boolean {
+    return this.opts.explicitCache ?? /^https:\/\/openrouter\.ai(\/|$)/i.test(this.opts.baseUrl);
+  }
 
   constructor(private readonly opts: OpenAiAdapterOptions) {}
 
@@ -60,7 +65,7 @@ export class OpenAiCompatAdapter implements LlmAdapter {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.opts.apiKey}` },
         body: JSON.stringify({
           model: req.model,
-          messages: req.messages.map(toWireMessage),
+          messages: req.messages.map((m) => toWireMessage(m, this.supportsExplicitCache)),
           stream: true,
           stream_options: { include_usage: true },
           ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),

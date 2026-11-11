@@ -24,6 +24,8 @@
     "dev:test": "tsx scripts/test-run.ts -- next dev -p 3110",
     "dev:test:real": "tsx scripts/test-run.ts --real -- next dev -p 3110",
     "cache:dump": "tsx scripts/cache-probe.ts dump",
+    "tokens:calib": "tsx scripts/token-calib.ts",
+    "cache:latency": "tsx scripts/cache-latency.ts",
     "cache:probe": "tsx scripts/cache-probe.ts probe"
   },
   "dependencies": {
