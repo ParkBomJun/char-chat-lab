@@ -69,6 +69,7 @@
 - 각 블록의 토큰 수를 추정해서 반환값에 포함한다(사용량 기록과 디버깅용).
 - 전체 토큰 예산을 넘으면 4번(최근 대화)의 오래된 턴부터 잘라낸다. 1번은 절대 자르지 않는다.
 - **트레이드오프 기록**: 로어북을 앞쪽에 두면 반영은 강해지지만 캐시가 깨진다. 1단계는 위 순서로 고정하고, 2단계에서 배치를 바꿔 비교 실험한다.
+  - *5단계 관측(시뮬레이션, 가짜 서버 7턴)*: 걸린 로어북이 바뀐 턴(3번)마다 이전 요청의 접두사 중 고정 블록 1개만 재사용되고 그 뒤 대화 전체의 캐시가 무효화됐다. 로어북이 그대로인 턴(1→2, 2→3, 3→4)은 전체 접두사가 유지됐다.
 
 ### 3-3. 기억
 
@@ -220,6 +221,7 @@ model ModerationEvent {
 > - `MemorySummary`에 `@@unique([conversationId, version])`. `coversUntilMsg`는 `Message.id`.
 > - (3단계) `UsageLog`에 `usageEstimated Boolean`(제공사 usage가 없어 글자 수로 추정한 행), `blockTokens Json?`(조립기의 블록별 추정 토큰) 추가.
 > - (4단계) 기억 구현 규칙: 최근 대화 = 최신 요약이 덮지 않은 메시지 전부. 원문 턴이 `RECENT_TURNS + SUMMARY_EVERY`(기본 30)가 되면 가장 오래된 `SUMMARY_EVERY`(10)턴을 요약에 합치고 `coversUntilMsg`를 그 마지막 메시지로 옮긴다(턴 경계에서만 끊음). 요약 갱신 사이에는 프롬프트 앞부분이 변하지 않아 캐시가 이어지고, 갱신 시점에만 한 번 깨진다. 요약 호출은 `LLM_CLASSIFIER_MODEL`(없으면 대화 모델), `UsageLog.kind=SUMMARY`.
+> - (5단계) 로어북 매칭 규칙: 최근 `LOREBOOK_SCAN_TURNS`(4)턴의 사용자·캐릭터 메시지(이번 입력 포함)에서 **공백 제거·대소문자 무시 부분 문자열**로 비교(한국어 조사 때문에 단어 경계는 쓰지 않음). 공백 제외 2글자 미만 키워드는 매칭에서 무시하고 등록(seed·7단계 관리자)에서도 거절. 결과는 우선순위 내림차순·id 순으로 고정(출력 안정성). 걸린 항목 id는 `UsageLog.blockTokens`의 `lorebookIds`에 기록.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

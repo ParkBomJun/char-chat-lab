@@ -3,12 +3,17 @@ import type { BlockTokens } from "@/lib/chat/assemble";
 import { estimateCost, type PricingTable, pricing } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens";
 
+/** 조립 결과의 디버깅용 부가 정보 */
+export type PromptMeta = { lorebookIds: string[]; droppedRecent: number };
+
 export type UsageRowInput = {
   model: string;
   /** 제공사가 준 usage. 없으면(중간 중지 등) 글자 수로 추정한다. */
   usage: Usage | null;
   /** 채팅 호출만 있다(요약·분류기는 null) */
   blockTokens: BlockTokens | null;
+  /** 채팅 호출의 조립 메타(로어북 id 등). blockTokens와 같은 JSON에 합쳐 저장 */
+  promptMeta?: PromptMeta;
   /** usage가 없을 때 입력 토큰 추정값 */
   estimatedInputTokens: number;
   outputText: string;
@@ -26,7 +31,7 @@ export type UsageRowData = {
   estCost: string;
   ttftMs: number | null;
   totalMs: number;
-  blockTokens: BlockTokens | null;
+  blockTokens: (BlockTokens & Partial<PromptMeta>) | null;
 };
 
 export function buildUsageRow(i: UsageRowInput, table: PricingTable = pricing): UsageRowData {
@@ -45,6 +50,6 @@ export function buildUsageRow(i: UsageRowInput, table: PricingTable = pricing): 
     estCost: cost.toFixed(8),
     ttftMs: i.ttftMs,
     totalMs: i.totalMs,
-    blockTokens: i.blockTokens,
+    blockTokens: i.blockTokens ? { ...i.blockTokens, ...i.promptMeta } : null,
   };
 }

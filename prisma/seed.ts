@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { validateKeywords } from "../src/lib/lorebook/keywords";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -39,7 +40,35 @@ async function main() {
     create: { id: SEED_CHARACTER_ID, ...data },
   });
 
-  console.log(`seed 완료: 데모 계정 ${email}, 캐릭터 "${data.name}"`);
+  // 로어북 (자리표시 내용). 키워드는 등록 규칙(공백 뺀 2글자 이상)을 seed에서도 똑같이 검증한다.
+  const lore = [
+    {
+      id: "seed-lore-1",
+      priority: 5,
+      keywords: ["옥상", "정원", "허브", "바질"],
+      content: "[자리표시] 도서관 옥상 정원에는 바질·로즈메리·민트 화분이 있다. 하루는 매일 오후 두 시에 물을 준다.",
+    },
+    {
+      id: "seed-lore-2",
+      priority: 3,
+      keywords: ["도서관", "사서", "대출"],
+      content: "[자리표시] 하루가 일하는 도서관은 오래된 3층 건물이다. 3층 창가 자리는 하루가 아끼는 독서 공간이다.",
+    },
+    {
+      id: "seed-lore-3",
+      priority: 1,
+      keywords: ["추천", "시집", "식물도감"],
+      content: "[자리표시] 하루가 아끼는 책은 식물도감과 오래된 시집이다. 책 추천을 부탁받으면 상대의 기분을 먼저 묻는다.",
+    },
+  ];
+  for (const l of lore) {
+    const v = validateKeywords(l.keywords);
+    if (v.errors.length) throw new Error(`로어북 ${l.id} 키워드 오류: ${v.errors.join(" / ")}`);
+    const data = { characterId: SEED_CHARACTER_ID, keywords: v.keywords, content: l.content, priority: l.priority, enabled: true };
+    await prisma.lorebookEntry.upsert({ where: { id: l.id }, update: data, create: { id: l.id, ...data } });
+  }
+
+  console.log(`seed 완료: 데모 계정 ${email}, 캐릭터 "${data.name}", 로어북 ${lore.length}개`);
 }
 
 main()

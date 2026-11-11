@@ -10,6 +10,7 @@ import { assemblePrompt } from "@/lib/chat/assemble";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
 import { updateSummaryForConversation } from "@/lib/memory/db";
+import { matchLorebook } from "@/lib/lorebook/match";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +60,14 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
 
   await prisma.message.create({ data: { conversationId: conv.id, role: "USER", content: userInput } });
 
-  // 5단계에서 로어북이 여기로 들어온다.
-  const assembled = assemblePrompt(conv.character, summary?.content ?? null, [], recent, userInput, {
+  // 로어북: 최근 M턴(이번 입력 포함)에서 키워드가 나온 활성 항목만. (SPEC 3-4)
+  const entries = await prisma.lorebookEntry.findMany({
+    where: { characterId: conv.characterId, enabled: true },
+    select: { id: true, keywords: true, content: true, priority: true, enabled: true },
+  });
+  const lorebookHits = matchLorebook(entries, [...recent, { role: "USER", content: userInput }], config.lorebookScanTurns);
+
+  const assembled = assemblePrompt(conv.character, summary?.content ?? null, lorebookHits, recent, userInput, {
     promptTokenBudget: config.promptTokenBudget,
     lorebookTokenBudget: config.lorebookTokenBudget,
   });
@@ -131,6 +138,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             model: chatModel,
             usage,
             blockTokens: assembled.blockTokens,
+            promptMeta: { lorebookIds: assembled.lorebookIds, droppedRecent: assembled.droppedRecent },
             estimatedInputTokens: assembled.blockTokens.total,
             outputText: text,
             ttftMs,

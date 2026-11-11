@@ -21,6 +21,13 @@ describe("buildUsageRow", () => {
     const r = buildUsageRow({ model: "m", usage: null, blockTokens: bt, estimatedInputTokens: bt.total, outputText: "안녕하세요", ttftMs: null, totalMs: 50 }, table);
     expect(r).toMatchObject({ inputTokens: 20, cachedInputTokens: 0, outputTokens: 5, usageEstimated: true, ttftMs: null });
   });
+  it("promptMeta(로어북 id 등)는 blockTokens JSON에 합쳐진다", () => {
+    const r = buildUsageRow(
+      { model: "m", usage: null, blockTokens: bt, promptMeta: { lorebookIds: ["l1"], droppedRecent: 2 }, estimatedInputTokens: 20, outputText: "a", ttftMs: 1, totalMs: 2 },
+      table,
+    );
+    expect(r.blockTokens).toEqual({ ...bt, lorebookIds: ["l1"], droppedRecent: 2 });
+  });
   it("요약 호출은 blockTokens 없이 기록", () => {
     const r = buildUsageRow({ model: "m", usage: null, blockTokens: null, estimatedInputTokens: 77, outputText: "abc", ttftMs: null, totalMs: 9 }, table);
     expect(r).toMatchObject({ inputTokens: 77, outputTokens: 3, usageEstimated: true, blockTokens: null });
