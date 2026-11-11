@@ -1,0 +1,7 @@
+{
+  "_note": "모델 단가(USD / 100만 토큰). 코드에 박지 않고 여기서만 관리한다. 값은 제공사 공식 가격표를 보고 직접 입력할 것. 0이면 비용이 0으로 기록된다.",
+  "default": { "inputPer1M": 0, "cachedInputPer1M": 0, "outputPer1M": 0 },
+  "models": {
+    "mock-model": { "inputPer1M": 0, "cachedInputPer1M": 0, "outputPer1M": 0 }
+  }
+}

@@ -2,9 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { loadConfig } from "@/lib/config";
 import { getLlm } from "@/lib/llm";
-import { LlmError } from "@/lib/llm/types";
-import { buildSimpleMessages } from "@/lib/chat/simple-prompt";
+import { LlmError, type Usage } from "@/lib/llm/types";
+import { assemblePrompt } from "@/lib/chat/assemble";
+import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +23,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   const { conversationId } = await ctx.params;
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return json(400, `메시지는 1~${MAX_INPUT_CHARS}자여야 합니다.`);
+  const userInput = parsed.data.content;
 
   // 소유권 확인: 남의 대화는 존재 자체를 숨긴다(404).
   const conv = await prisma.conversation.findFirst({
@@ -30,24 +33,30 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   if (!conv) return json(404, "대화를 찾을 수 없습니다.");
   if (conv.status === "STOPPED") return json(409, "중단된 대화입니다.");
 
-  await prisma.message.create({
-    data: { conversationId: conv.id, role: "USER", content: parsed.data.content },
-  });
+  const config = loadConfig();
 
-  // 2단계: 단순히 최근 40개. 토큰 예산·요약은 3~4단계에서.
-  const history = (
+  // 이번 입력을 저장하기 전에 기존 대화를 읽는다(조립기에는 "이번 입력"을 따로 넘긴다).
+  const recent = (
     await prisma.message.findMany({
       where: { conversationId: conv.id, retracted: false },
       orderBy: { createdAt: "desc" },
-      take: 40,
+      take: config.recentTurns * 2,
       select: { role: true, content: true },
     })
   ).reverse();
 
-  const { adapter, chatModel } = getLlm();
-  const messages = buildSimpleMessages(conv.character, history);
+  await prisma.message.create({ data: { conversationId: conv.id, role: "USER", content: userInput } });
 
+  // 4~5단계에서 요약·로어북이 여기로 들어온다.
+  const assembled = assemblePrompt(conv.character, null, [], recent, userInput, {
+    promptTokenBudget: config.promptTokenBudget,
+    lorebookTokenBudget: config.lorebookTokenBudget,
+  });
+
+  const { adapter, chatModel } = getLlm();
+  const startedAt = Date.now();
   const encoder = new TextEncoder();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: string, payload: unknown) => {
@@ -59,12 +68,22 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
       };
 
       let text = "";
+      let usage: Usage | null = null;
+      let ttftMs: number | null = null;
       let failed = false;
       try {
-        for await (const ev of adapter.stream({ model: chatModel, messages, signal: req.signal })) {
+        for await (const ev of adapter.stream({
+          model: chatModel,
+          messages: assembled.messages,
+          maxOutputTokens: config.maxOutputTokens,
+          signal: req.signal,
+        })) {
           if (ev.type === "delta") {
+            if (ttftMs === null) ttftMs = Date.now() - startedAt;
             text += ev.text;
             send("delta", { text: ev.text });
+          } else {
+            usage = ev.usage;
           }
         }
       } catch (e) {
@@ -82,6 +101,23 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
           select: { id: true },
         });
         send("done", { messageId: saved.id });
+
+        // 사용량 기록은 응답 표시 뒤에. 기록 실패가 대화를 깨면 안 된다.
+        try {
+          const row = buildUsageRow({
+            model: chatModel,
+            usage,
+            blockTokens: assembled.blockTokens,
+            outputText: text,
+            ttftMs,
+            totalMs: Date.now() - startedAt,
+          });
+          await prisma.usageLog.create({
+            data: { userId: session.user.id, conversationId: conv.id, kind: "CHAT", ...row },
+          });
+        } catch (e) {
+          console.error("[chat] UsageLog 기록 실패", e);
+        }
       } else if (!failed) {
         send("error", { message: "빈 응답이 왔어요. 다시 시도해 주세요." });
       }

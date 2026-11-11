@@ -138,9 +138,11 @@ model UsageLog {
   inputTokens       Int
   cachedInputTokens Int       @default(0)
   outputTokens      Int
+  usageEstimated    Boolean   @default(false) // true면 제공사 usage가 없어 글자 수로 추정한 값
   estCost           Decimal
   ttftMs            Int? // 첫 토큰까지
   totalMs           Int
+  blockTokens       Json? // 조립기가 추정한 블록별 토큰(fixed/summary/lorebook/recent/input/total)
   createdAt         DateTime  @default(now())
 
   @@index([userId, createdAt])

@@ -218,6 +218,7 @@ model ModerationEvent {
 > - `Tier`는 `FREE | PRO`. 모든 enum 정의, 조회용 인덱스(`Message(conversationId, createdAt)`, `UsageLog(userId, createdAt)` 등) 추가.
 > - 부모 삭제 시 자식도 삭제(`onDelete: Cascade`): User→Conversation, Conversation→Message/MemorySummary, Character→LorebookEntry. (UsageLog·ModerationEvent는 분석용이라 관계 없이 id만 보관)
 > - `MemorySummary`에 `@@unique([conversationId, version])`. `coversUntilMsg`는 `Message.id`.
+> - (3단계) `UsageLog`에 `usageEstimated Boolean`(제공사 usage가 없어 글자 수로 추정한 행), `blockTokens Json?`(조립기의 블록별 추정 토큰) 추가.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

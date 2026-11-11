@@ -5,7 +5,8 @@
 ## 상태
 - 2026-11-11 **0단계 완료** (셋업).
 - 2026-11-11 **1단계 완료** (인증 + seed).
-- 2026-11-11 **2단계 완료** (대화 기본). **실제 모델은 미검증** — `.env`의 LLM 키·모델이 비어 mock으로 동작. 다음: 3단계(조립기+캐싱+UsageLog) — 사용자 승인 대기. 실제 키를 넣으면 2단계 완료 기준("실제로 대화된다") 확인 필요.
+- 2026-11-11 **2단계 완료** (대화 기본). **실제 모델은 미검증** — `.env`의 LLM 키·모델이 비어 mock으로 동작. 실제 키를 넣으면 2·3단계 완료 기준("실제로 대화된다", 캐시 토큰 기록) 확인 필요.
+- 2026-11-11 **3단계 완료** (조립기+UsageLog). 다음: 4단계(기억 요약) — 사용자 승인 대기.
 
 ## 결정·메모
 - 위치 `~/char-chat-lab/`. Next 16.4 / React 19 / Prisma 7.10(client 출력 `src/generated/prisma`, gitignore, 어댑터 `@prisma/adapter-pg` 필수) / Vitest 5.
@@ -20,6 +21,10 @@
 - Next가 만드는 `AGENTS.md`는 "Next 문서는 node_modules/next/dist/docs/ 참고" 안내.
 - LLM 계층: `src/lib/llm/` (`types.ts` 인터페이스·`openai.ts` OpenAI 호환·`mock.ts`·`index.ts getLlm()`). 키 비면 mock 자동, `LLM_PROVIDER=mock`으로 강제 가능. 키가 있는데 `LLM_CHAT_MODEL`이 비면 오류. usage의 `prompt_tokens_details.cached_tokens`를 `cachedInputTokens`로 읽음(3단계 UsageLog에서 기록).
 - SSE: `src/lib/sse.ts`(SseParser·formatSse; 서버 업스트림 읽기와 클라이언트 읽기 공용). 라우트 `POST /api/chat/[conversationId]` 이벤트 `delta`/`done`/`error`. 중지(abort) 시 받은 만큼 저장, LLM 실패 시 저장 안 하고 일반 오류 문구만 노출(상세는 서버 로그).
-- `src/lib/chat/simple-prompt.ts`는 2단계 임시 조립기(안전 지시 최상단). 3단계에서 순수 함수 조립기로 교체.
 - 검증 방법: Playwright E2E(스트리밍 관측·중지·권한 404/401·입력 길이) + 가짜 OpenAI 호환 서버(scratchpad `fake-openai.mjs`, :4010)로 요청 형식 확인. 한글 IME 조합 중 Enter는 전송하지 않음(`isComposing`).
 - `npm run typecheck`는 `next typegen` 선행(라우트 타입 `RouteContext`/`PageProps` 생성).
+- 조립기 `src/lib/chat/assemble.ts`: `assemblePrompt(character, summary, lorebookHits, recentMessages, userInput, config)` 순수 함수. 요약·로어북은 각각 별도 `system` 메시지(고정 블록 뒤). 예산 초과 시 최근 대화를 오래된 것부터 자르며 항상 최신 쪽 연속 구간 유지. 고정 블록·이번 입력은 안 자름(`overBudget` 표시). 로어북 예산 선별도 여기서 처리(키워드 매칭은 5단계). 테스트로 "이전 턴 프롬프트가 다음 턴의 접두사" 고정.
+- 토큰 추정 = 글자 수(`lib/tokens.ts`). 한국어에선 실제보다 크게 잡힘(보수적). **OpenAI 자동 캐시는 접두사 ≥1024 실토큰부터** — 시드 캐릭터 고정 블록은 추정 397이라 실제로는 캐시가 안 걸릴 가능성이 큼(8단계 평가 때 고정 블록을 키우거나 이 한계를 결과에 명시).
+- 설정 `src/lib/config.ts`(env, 빈 값은 기본값), 단가 `src/config/pricing.json`(현재 전부 0 — 사용자가 입력), 비용 `lib/pricing.ts`(입력 토큰은 캐시 포함 → (입력-캐시)×입력단가+캐시×캐시단가+출력×출력단가), 행 생성 `lib/usage.ts`. usage 없는 중지 경로는 `usageEstimated=true`.
+- **4단계 설계 주의**: 지금 최근 대화는 "마지막 RECENT_TURNS×2개" 슬라이딩 창이라 20턴 넘으면 매 턴 접두사가 밀려 캐시가 깨짐. 요약 갱신 주기(10턴)에 맞춰 창 시작점을 묶음 단위로만 옮기는 방식(요약이 덮은 메시지 이후 전부)을 4단계에서 정해야 함.
+- `.gitignore`의 `.env*`가 `.env.example`까지 무시하던 문제를 3단계에서 `!.env.example`로 수정(0단계부터 미커밋이었음).
