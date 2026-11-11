@@ -20,6 +20,7 @@ import { getClassifier } from "@/lib/safety";
 import { runConversation, type EngineConfig, type EngineDeps } from "./lib/engine";
 import { EVAL_DIR, PRIVATE_DIR, loadCharacter, loadRedteamSetsTagged, loadScenarios } from "./lib/load";
 import { estimatePlan } from "./lib/plan";
+import { buildJudgeRows, buildTranscript, renderJudgeCsv, renderResponsesMd, type CaseTranscript } from "./lib/judge";
 import { classifyCase, compareRuns, summarizeRedteam, summarizeRun } from "./lib/metrics";
 import { renderReport, type RedteamReport, type ReportMeta, type ScenarioReport } from "./lib/report";
 
@@ -152,15 +153,19 @@ async function runScenarios(): Promise<ScenarioReport[]> {
 }
 
 // ── 레드팀 ───────────────────────────────────────────────────────────────────
+/** 비공개 세트의 케이스별 응답 원문(수동 판정용). 공개 결과 파일에는 쓰지 않는다. */
+const transcripts: CaseTranscript[] = [];
+
 async function runRedteam(): Promise<RedteamReport[]> {
   const reports: RedteamReport[] = [];
   const character = loadCharacter(args.character!);
-  for (const set of redteamSets) {
+  for (const { set, isPrivate } of loadedSets) {
     console.log(`\n▶ 레드팀 ${set.id} (${set.cases.length}케이스)`);
     const cases = [];
     for (const c of set.cases) {
       const { results } = await runConversation(character, [], cut(c.turns), deps, baseCfg);
       const r = classifyCase(c, results, { appSafety: baseCfg.appSafety !== false });
+      if (isPrivate) transcripts.push(buildTranscript(set.id, c, results));
       cases.push(r);
       console.log(`  ${r.outcome === "success" ? "✓" : r.outcome === "fail" ? "✗" : "?"} ${c.id} [${c.label}→${c.expect}] ${r.firstIntervention ? `${r.firstIntervention.turn}턴 ${r.firstIntervention.stage}/${r.firstIntervention.kind}` : "개입 없음"}`);
     }
@@ -229,6 +234,23 @@ async function main() {
   );
   writeFileSync(file.replace(/\.md$/, ".json"), JSON.stringify({ meta, scenarios: scenarioReports, redteam: redactedRedteam }, null, 2), "utf8");
   console.log(`\n결과 저장: ${path.relative(process.cwd(), file)} (+ .json)`);
+
+  // 비공개 세트: 응답 원문과 수동 판정용 CSV를 private/results/에만 저장한다(공개 결과에는 원문 없음)
+  if (transcripts.length) {
+    if (!path.resolve(dir).startsWith(PRIVATE_DIR + path.sep) && path.resolve(dir) !== PRIVATE_DIR) {
+      console.log(`※ 결과 위치(${path.relative(process.cwd(), dir)})가 비공개 폴더 밖이라 응답 원문은 저장하지 않았습니다. --out을 빼면 eval/redteam/private/results/에 저장됩니다.`);
+    } else {
+      const stem2 = path.basename(file).replace(/\.md$/, "");
+      const run = { runId: stem2, appSafety: baseCfg.appSafety !== false, adapter: llm.adapter.name, model: llm.chatModel, startedAtKst: meta.startedAtKst };
+      const base = path.join(dir, stem2);
+      writeFileSync(`${base}.responses.json`, JSON.stringify({ run, cases: transcripts }, null, 2), "utf8");
+      writeFileSync(`${base}.responses.md`, renderResponsesMd(run, transcripts), "utf8");
+      const rows = buildJudgeRows(run, transcripts);
+      writeFileSync(`${base}.judge.csv`, renderJudgeCsv(rows), "utf8");
+      console.log(`응답 원문(비공개): ${path.relative(process.cwd(), base)}.responses.md / .json`);
+      console.log(`수동 판정 파일: ${path.relative(process.cwd(), base)}.judge.csv — '응답 요약'·'판정'(유해 도달 / 거절·전환 / 해당 없음) 칸을 채운 뒤 npm run eval:judge -- <csv 파일들>`);
+    }
+  }
 }
 
 main().catch((e) => {

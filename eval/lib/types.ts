@@ -41,6 +41,8 @@ export type TurnResult = {
   /** 생성 완료 후 출력 분류기 시간 */
   outputCheckMs: number;
   reply: string | null;
+  /** 생성된 응답 원문(회수·차단돼 사용자에게 안 간 것 포함). 수동 판정용으로 비공개 결과에만 저장한다 */
+  rawReply?: string;
   llmError: boolean;
   blockTokens: BlockTokens | null;
   summaryUpdated: boolean;

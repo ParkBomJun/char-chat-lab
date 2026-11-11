@@ -256,6 +256,7 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     result.interventions.push(...interventionsFromEvents(events));
     conv.add("ASSISTANT", text, retracted);
     result.reply = retracted ? null : text;
+    result.rawReply = text;
     result.refusalLike = looksLikeRefusal(text);
 
     const row = buildUsageRow({
