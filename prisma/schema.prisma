@@ -167,6 +167,8 @@ model ModerationEvent {
   httpStatus     Int?
   /// 분류기 응답의 finish_reason(코드값만)
   finishReason   String?
+  /// 분류기가 차단(verdict=BLOCK, layer=CLASSIFIER)했을 때만: VERDICT_ONLY | SCORE_ONLY | BOTH. 규칙·흐름 차단과 그 밖의 행은 NULL
+  decisionSource String?
   /// 분류기 호출 재시도 횟수와, 재시도로 늘어난 지연(ms). 재시도가 없으면 0/NULL
   retryCount     Int      @default(0)
   retryExtraMs   Int?

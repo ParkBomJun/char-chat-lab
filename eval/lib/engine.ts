@@ -123,7 +123,8 @@ export function interventionsFromEvents(events: readonly ModEvent[]): Interventi
       e.stage === "INPUT" ? (e.layer === "RULE" ? "INPUT_RULE" : "INPUT_CLASSIFIER") : e.stage === "OUTPUT_STREAM" ? "OUTPUT_STREAM" : e.stage === "OUTPUT_FINAL" ? "OUTPUT_FINAL" : "FLOW";
     const kind: InterventionKind =
       e.verdict === "ERROR" ? "check_failed" : e.action === "crisis_notice" ? "crisis" : (e.action as InterventionKind);
-    out.push(e.verdict === "ERROR" ? { stage, kind, category: e.category, errorKind: e.errorKind ?? null, httpStatus: e.httpStatus ?? null, finishReason: e.finishReason ?? null } : { stage, kind, category: e.category });
+    const src = e.decisionSource ? { decisionSource: e.decisionSource } : {};
+    out.push(e.verdict === "ERROR" ? { stage, kind, category: e.category, errorKind: e.errorKind ?? null, httpStatus: e.httpStatus ?? null, finishReason: e.finishReason ?? null } : { stage, kind, category: e.category, ...src });
   }
   return out;
 }

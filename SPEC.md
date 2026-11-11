@@ -210,6 +210,7 @@ model ModerationEvent {
   category       String?
   score          Float?
   action         String    // none | blocked | retracted | warned | stopped | crisis_notice
+  decisionSource String?   // 분류기 차단일 때만: VERDICT_ONLY | SCORE_ONLY | BOTH (차단 규칙은 verdict=block OR score ≥ 임계값)
   errorKind      String?   // verdict=ERROR일 때만: http_status | provider_filter | parse_error | timeout (분류 불가면 NULL)
   httpStatus     Int?      // HTTP 응답을 받은 경우의 상태 코드
   finishReason   String?   // 분류기 응답의 finish_reason(코드값만). content_filter 등은 provider_filter로 기록

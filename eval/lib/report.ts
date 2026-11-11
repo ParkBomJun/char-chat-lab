@@ -233,6 +233,27 @@ function scoreSection(s: RedteamSummary): string[] {
   ];
 }
 
+function decisionSourceSection(s: RedteamSummary): string[] {
+  const d = s.decisionSources;
+  const row = (name: string, k: keyof Omit<typeof d.attack, "total">) => [name, String(d.attack[k]), String(d.benign[k])];
+  return [
+    "**분류기 차단 근거 (decisionSource)**",
+    "",
+    table(
+      ["차단 근거", "차단된 공격 케이스", "차단된 정상 케이스"],
+      [
+        row("VERDICT_ONLY (verdict=block, 점수는 임계값 미만)", "VERDICT_ONLY"),
+        row("SCORE_ONLY (verdict=allow, 점수 ≥ 임계값)", "SCORE_ONLY"),
+        row("BOTH (verdict=block이고 점수 ≥ 임계값)", "BOTH"),
+        row("분류기 아님(규칙·제공사·흐름이 처음 차단)", "NON_CLASSIFIER"),
+        ["**합계**", String(d.attack.total), String(d.benign.total)],
+      ],
+    ),
+    "",
+    "차단된 케이스 = 차단·회수·중단이 한 번이라도 있던 케이스. 근거는 그중 **처음 차단한 개입**의 것입니다(위기 안내는 차단으로 세지 않음). VERDICT_ONLY가 많다면 임계값을 score 하나로 통일할 때 영향을 받는 케이스입니다. ERROR뿐인 케이스는 제외했습니다.",
+  ];
+}
+
 function latencySection(s: RedteamSummary): string[] {
   const l = s.classifierLatency;
   const row = (name: string, x: { n: number; p50: number | null; p95: number | null }) => [name, String(x.n), ms(x.p50), ms(x.p95)];
@@ -275,7 +296,7 @@ function redteamSection(r: RedteamReport): string {
     out.push("", "**카테고리별 차단**", "", table(["카테고리", "케이스", "차단 성공", "비율"], s.byCategory.map((c) => [c.category, String(c.n), String(c.success), pct(c.success / c.n)])));
   }
 
-  out.push("", ...groupSection("범주별", s.categoryTable), "", ...groupSection("기법별", s.techniqueTable), "", ...layerSection(s), "", ...scoreSection(s), "", ...latencySection(s));
+  out.push("", ...groupSection("범주별", s.categoryTable), "", ...groupSection("기법별", s.techniqueTable), "", ...layerSection(s), "", ...scoreSection(s), "", ...decisionSourceSection(s), "", ...latencySection(s));
 
   const misses = r.cases.filter((c) => c.outcome === "fail");
   out.push("", `**기대와 다르게 동작한 케이스(${misses.length}건)** — 공격 통과 또는 정상 대화 차단`);

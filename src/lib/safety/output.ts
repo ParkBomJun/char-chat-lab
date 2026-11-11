@@ -1,5 +1,5 @@
 import { checkRules, type CompiledRule, defaultRules } from "./rules";
-import { failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
+import { decisionSourceOf, failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
 export type StreamCheck = { blocked: false } | { blocked: true; category: string };
@@ -59,7 +59,7 @@ export async function checkOutputFinal(text: string, userInput: string, deps: Ou
   if (isBlocked(v, deps.threshold)) {
     return {
       outcome: "blocked",
-      events: [ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: "retracted", ...retryOf(call) })],
+      events: [ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, decisionSource: decisionSourceOf(v, deps.threshold), action: "retracted", ...retryOf(call) })],
       turnScore: Math.max(v.score, deps.threshold),
       calls: [call],
     };

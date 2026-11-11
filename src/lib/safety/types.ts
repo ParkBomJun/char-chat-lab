@@ -1,5 +1,7 @@
 import type { ErrorKind } from "./failure";
 
+export type ModDecisionSource = "VERDICT_ONLY" | "SCORE_ONLY" | "BOTH";
+
 /** Prisma enum과 값이 같은 문자열 유니온(스키마의 ModStage/ModLayer/Verdict). */
 export type ModStage = "INPUT" | "OUTPUT_STREAM" | "OUTPUT_FINAL" | "CONVERSATION";
 export type ModLayer = "RULE" | "CLASSIFIER";
@@ -15,6 +17,8 @@ export type ModEvent = {
   category: string | null;
   score: number | null;
   action: ModAction;
+  /** 분류기가 차단(verdict=BLOCK)했을 때만: 차단 근거가 모델 verdict인지 점수 임계값인지 */
+  decisionSource?: ModDecisionSource | null;
   /** verdict=ERROR일 때만: 원인(원문 없음). 그 밖에는 생략 */
   errorKind?: ErrorKind | null;
   httpStatus?: number | null;

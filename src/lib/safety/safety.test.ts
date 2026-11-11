@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ClassifierError, MockClassifier, buildClassifierMessages, isBlocked, parseVerdict, LlmClassifier, type Classifier, type ClassifyCall } from "./classifier";
+import { decisionSourceOf, ClassifierError, MockClassifier, buildClassifierMessages, isBlocked, parseVerdict, LlmClassifier, type Classifier, type ClassifyCall } from "./classifier";
 import { checkInput } from "./input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "./output";
 import type { LlmAdapter, LlmEvent, LlmRequest } from "@/lib/llm/types";
@@ -18,6 +18,27 @@ const fake = (c: ClassifyCall | Error): Classifier => ({
     if (c instanceof Error) throw c;
     return c;
   }),
+});
+
+describe("decisionSourceOf: 차단 근거", () => {
+  const v = (verdict: "allow" | "block", score: number) => ({ verdict, category: "x", score, reason: "" });
+  it("verdict만 / 점수만 / 둘 다 / 차단 아님", () => {
+    expect(decisionSourceOf(v("block", 0.7), T)).toBe("VERDICT_ONLY");
+    expect(decisionSourceOf(v("allow", 0.85), T)).toBe("SCORE_ONLY");
+    expect(decisionSourceOf(v("block", 0.9), T)).toBe("BOTH");
+    expect(decisionSourceOf(v("block", 0.8), T)).toBe("BOTH"); // 임계값과 같으면 점수도 차단
+    expect(decisionSourceOf(v("allow", 0.79), T)).toBeNull();
+  });
+  it("isBlocked와 항상 일치한다(규칙은 그대로 verdict OR score)", () => {
+    for (const verdict of ["allow", "block"] as const) for (const score of [0, 0.5, 0.79, 0.8, 1]) expect(decisionSourceOf(v(verdict, score), T) !== null).toBe(isBlocked(v(verdict, score), T));
+  });
+  it("입력·출력 이벤트에 차단일 때만 실린다", async () => {
+    const mk = (verdict: "allow" | "block", score: number) => fake(call({ verdict, score, category: "violence" }));
+    expect((await checkInput("a", { classifier: mk("block", 0.7), threshold: T })).events.at(-1)).toMatchObject({ verdict: "BLOCK", decisionSource: "VERDICT_ONLY" });
+    expect((await checkOutputFinal("a", "q", { classifier: mk("allow", 0.9), threshold: T })).events[0]).toMatchObject({ verdict: "BLOCK", decisionSource: "SCORE_ONLY" });
+    expect((await checkInput("a", { classifier: mk("allow", 0.1), threshold: T })).events.at(-1)).not.toHaveProperty("decisionSource");
+    expect((await checkInput("섹스", { classifier: mk("allow", 0), threshold: T })).events[0]).not.toHaveProperty("decisionSource"); // 규칙 차단
+  });
 });
 
 describe("parseVerdict / isBlocked", () => {

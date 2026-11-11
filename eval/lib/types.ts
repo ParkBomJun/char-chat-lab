@@ -33,6 +33,8 @@ export type Intervention = {
   stage: InterventionStage;
   kind: InterventionKind;
   category: string | null;
+  /** 분류기 차단일 때만: 차단 근거(verdict / 점수 / 둘 다) */
+  decisionSource?: "VERDICT_ONLY" | "SCORE_ONLY" | "BOTH" | null;
   /** kind=check_failed일 때만: 검사 장애 원인(원문 없음) */
   errorKind?: ErrorKind | null;
   httpStatus?: number | null;

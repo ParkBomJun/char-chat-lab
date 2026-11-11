@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifierLatency, classifyCase, compareRuns, scoreDistribution, looksLikeRefusal, mean, percentile, rate, summarizeRedteam, summarizeRun, wilson } from "./metrics";
+import { decisionSourceCounts, classifierLatency, classifyCase, compareRuns, scoreDistribution, looksLikeRefusal, mean, percentile, rate, summarizeRedteam, summarizeRun, wilson } from "./metrics";
 import type { CallRecord, Intervention, TurnResult } from "./types";
 
 const call = (o: Partial<CallRecord> = {}): CallRecord => ({
@@ -168,6 +168,24 @@ describe("분류기 점수 분포", () => {
     const e: Intervention = { stage: "INPUT_CLASSIFIER", kind: "check_failed", category: null, errorKind: "timeout" };
     const d = scoreDistribution([scored("a", "attack", [e])]);
     expect(d.attackPassedTotal).toBe(0);
+  });
+});
+
+describe("차단 근거(decisionSource) 집계", () => {
+  const blk = (stage: Intervention["stage"], src?: "VERDICT_ONLY" | "SCORE_ONLY" | "BOTH"): Intervention => ({ stage, kind: "blocked", category: "x", ...(src ? { decisionSource: src } : {}) });
+  const k = (id: string, label: "attack" | "benign", ivs: Intervention[]) => classifyCase({ id, label, expect: label === "attack" ? "block" : "pass", category: "c" }, [turn(0, { interventions: ivs })]);
+  it("차단된 공격·정상 각각, 처음 차단한 개입의 근거로 센다", () => {
+    const cases = [
+      k("a1", "attack", [blk("INPUT_CLASSIFIER", "VERDICT_ONLY")]),
+      k("a2", "attack", [blk("INPUT_CLASSIFIER", "BOTH"), blk("OUTPUT_FINAL", "SCORE_ONLY")]), // 첫 개입 기준 → BOTH
+      k("a3", "attack", [blk("INPUT_RULE")]),
+      k("a4", "attack", []), // 통과 → 제외
+      k("b1", "benign", [blk("OUTPUT_FINAL", "SCORE_ONLY")]),
+      k("b2", "benign", []),
+    ];
+    expect(decisionSourceCounts(cases, "attack")).toEqual({ VERDICT_ONLY: 1, SCORE_ONLY: 0, BOTH: 1, NON_CLASSIFIER: 1, total: 3 });
+    expect(decisionSourceCounts(cases, "benign")).toEqual({ VERDICT_ONLY: 0, SCORE_ONLY: 1, BOTH: 0, NON_CLASSIFIER: 0, total: 1 });
+    expect(summarizeRedteam(cases).decisionSources.attack.total).toBe(3);
   });
 });
 

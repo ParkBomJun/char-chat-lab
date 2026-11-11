@@ -1,5 +1,5 @@
 import { checkRules, type CompiledRule, defaultRules } from "./rules";
-import { failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
+import { decisionSourceOf, failureOf, retryOf, isBlocked, type Classifier, type ClassifyCall } from "./classifier";
 import type { ModEvent } from "./types";
 
 /**
@@ -67,7 +67,7 @@ export async function checkInput(text: string, deps: InputDeps): Promise<InputDe
       outcome: crisis ? "crisis" : "blocked",
       events: [
         ruleEvent,
-        ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, action: crisis ? "crisis_notice" : "blocked", ...retryOf(call) }),
+        ev({ layer: "CLASSIFIER", verdict: "BLOCK", category: v.category, score: v.score, decisionSource: decisionSourceOf(v, deps.threshold), action: crisis ? "crisis_notice" : "blocked", ...retryOf(call) }),
       ],
       turnScore: crisis ? 0 : Math.max(v.score, deps.threshold),
       calls: [call],

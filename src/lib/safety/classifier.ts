@@ -120,6 +120,16 @@ export function isBlocked(v: ClassifierVerdict, threshold: number): boolean {
   return v.verdict === "block" || v.score >= threshold;
 }
 
+/** 분류기가 차단한 근거: verdict만 block(점수는 임계값 미만) / 점수만 임계값 이상(verdict=allow) / 둘 다 */
+export type DecisionSource = "VERDICT_ONLY" | "SCORE_ONLY" | "BOTH";
+
+/** 차단이 아니면 null. isBlocked와 같은 규칙(verdict OR score ≥ 임계값)에서 어느 쪽이 작용했는지를 돌려준다. */
+export function decisionSourceOf(v: ClassifierVerdict, threshold: number): DecisionSource | null {
+  const byVerdict = v.verdict === "block";
+  const byScore = v.score >= threshold;
+  return byVerdict && byScore ? "BOTH" : byVerdict ? "VERDICT_ONLY" : byScore ? "SCORE_ONLY" : null;
+}
+
 export type LlmClassifierOptions = { timeoutMs: number; structuredOutput: boolean };
 
 /** 대화 모델과 별개의 호출로 저가 모델에 판정을 요청한다(SPEC 3-5). */
