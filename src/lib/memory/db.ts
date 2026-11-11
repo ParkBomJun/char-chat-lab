@@ -5,9 +5,9 @@ import { getLlm } from "@/lib/llm";
 import { collectText } from "@/lib/llm/collect";
 import { estimateTokens } from "@/lib/tokens";
 import { buildUsageRow } from "@/lib/usage";
+import { SUMMARY_MAX_OUTPUT_TOKENS } from "./prompt";
 import { runSummaryUpdate, type SummaryOutcome } from "./update";
 
-export const SUMMARY_MAX_OUTPUT_TOKENS = 700;
 const MAX_UNSUMMARIZED_LOAD = 500;
 
 /** Prisma unique 위반(P2002) 판별 */

@@ -3,6 +3,8 @@ import type { ChatMessage } from "@/lib/llm/types";
 export type SummarySourceMessage = { role: "USER" | "ASSISTANT" | "SYSTEM_NOTICE"; content: string };
 
 export const SUMMARY_MAX_CHARS = 800;
+/** 요약 호출의 출력 토큰 상한 */
+export const SUMMARY_MAX_OUTPUT_TOKENS = 700;
 
 export const SUMMARIZER_SYSTEM =
   "당신은 캐릭터챗 대화 기록 요약기다. [기존 요약]과 [새 대화]를 합쳐 하나의 새 요약을 만든다.\n" +

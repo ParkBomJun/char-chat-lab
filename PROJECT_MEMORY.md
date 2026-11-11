@@ -10,7 +10,8 @@
 - 2026-11-11 **4단계 완료** (기억 요약).
 - 2026-11-11 **5단계 완료** (로어북).
 - 2026-11-11 **6단계 완료** (안전 파이프라인). 규칙 목록·실제 분류기 한국어 성능은 미검증.
-- 2026-11-11 **7단계 완료** (일일 제한 + 관리자). 다음: 8단계(평가 스크립트) — 사용자 승인 대기. 8단계 전에 실제 LLM 키·모델·단가가 필요(없으면 시뮬레이션은 mock/가짜 서버 기준이라 수치가 의미 없음).
+- 2026-11-11 **7단계 완료** (일일 제한 + 관리자).
+- 2026-11-11 **8단계 완료** (평가 스크립트). **실제 수치는 아직 없음**: 키·모델·단가가 비어 mock/가짜 서버로만 검증. 레드팀 세트는 사용자 작성 대기(`eval/redteam/`). 다음: 9단계(배포+README) — 사용자 승인 대기.
 
 ## 결정·메모
 - 위치 `~/char-chat-lab/`. Next 16.4 / React 19 / Prisma 7.10(client 출력 `src/generated/prisma`, gitignore, 어댑터 `@prisma/adapter-pg` 필수) / Vitest 5.
@@ -43,3 +44,7 @@
 - **일일 제한/관리자(7단계)**: `lib/kst.ts`(KST 자정 경계), `lib/daily-limit.ts`, 라우트가 안전 검사 전에 429. 관리자 `src/app/admin/`(layout·page·moderation·characters, `actions.ts` 서버 액션), `lib/admin/{guard,forms,stats}.ts`. 교훈: ①서버 액션은 URL로 직접 호출 가능 → 각 액션이 `requireAdmin()`(DB 역할 확인) 호출, 실제로 일반 사용자 세션으로 액션 ID를 훔쳐 호출해 404 확인. ②Prisma `NOT {category:'turn'}`은 NULL 행을 빼므로 `OR[null, not]`로 써야 함. ③`createdAt`은 UTC timestamp(타임존 없음) → 날짜 묶음은 `AT TIME ZONE 'UTC'` 후 `'Asia/Seoul'`. ④폼 검증 실패 시 긴 텍스트 보존은 `useActionState`에서 values 반환(redirect하면 사라짐).
 - 관리자 시드 계정은 개발용 임시 비밀번호(`.env.example` 값). **공개 배포 전 반드시 교체**(9단계 체크리스트). 로그인 시도 횟수 제한도 없음(1단계에서 지적).
 - 대시보드 수치 검증: 가짜 서버 기준 비용 손계산 일치(대화 3×672+분류기 6×180), 캐시 128/1200=10.7% 일치.
+- **평가(8단계)** `eval/`: `run.ts`(CLI), `lib/{engine,metrics,report,schema,load,types}.ts`, `characters/eval-garden.json`(고정 블록 약 3천 토큰 추정, 캐시용), `scenarios/{garden-daily,counseling-light}.json`(각 45턴), `redteam/example.json`(형식 예시만). `npm run eval[:scenarios|:redteam]`. 상세는 `eval/README.md`.
+- 8단계 설계 결정/교훈: ①DB 없이 라우트를 재현하는 엔진(순수 함수·어댑터 재사용) — 라우트와 이중 관리라는 비용을 README에 명시. ②요약 전후 비교는 baseline(전체 원문, 예산 절단 없음) 대 서비스 설정, 평가용 프롬프트 예산 30000(안 그러면 긴 카드가 예산을 먹어 절단 효과가 섞임). ③고정 블록이 크면 전체 절감률이 작게 보이므로 이력 부분 절감률을 따로 보고. ④순절감·비용 절감은 음수가 될 수 있음(짧은 대화에선 요약이 손해). ⑤검사 장애(check_failed)뿐인 케이스는 "통과"의 증거도 못 되므로 판단 불가로 제외(초기 구현에서 success로 잘못 분류했던 버그를 테스트로 잡음). ⑥실제 API는 `--yes` 필요. ⑦mock 결과는 커밋 제외.
+- mock 실행으로 확인한 것: 요약은 30·40턴 뒤 갱신, counseling-light 18번째 턴(관용 표현 "죽고 싶을 만큼 창피")이 위기 규칙 오탐으로 잡힘(이게 곧 규칙 개선 후보), 가짜 서버로 캐시 128/300=42.7%·비용 손계산 일치.
+- 9단계 전에 사용자가 할 일: 실제 키·모델 `.env` 입력, `pricing.json` 단가, `eval/redteam/`에 공격·정상 대화 세트 작성(튜닝용/보고용 분리), 그 뒤 `npm run eval -- --yes`.

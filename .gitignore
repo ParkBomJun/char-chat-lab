@@ -45,3 +45,6 @@ next-env.d.ts
 
 # prisma generated client
 /src/generated
+
+# 평가 결과 중 mock(가짜 어댑터) 실행분은 의미 없는 수치라 커밋하지 않는다
+eval/results/*-mock.*
