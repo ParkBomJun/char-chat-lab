@@ -44,12 +44,12 @@ export function firstDiffSnippet(a: string, b: string, around = 24): string {
  * 길이 실험용 중립 더미 텍스트(정확히 `chars`글자). 같은 입력이면 항상 같은 결과(결정적)이므로 요청 간 바이트가 같다.
  * 문장마다 번호가 달라 단순 반복으로 압축·중복 제거되지 않는다. 내용은 일반 상식 수준의 영문 문장이다.
  */
-export function makeFiller(chars: number): string {
+export function makeFiller(chars: number, offset = 0): string {
   const subjects = ["The river", "A small bridge", "The morning market", "An old clock", "The north road", "A quiet library", "The harbor", "A narrow stair"];
   const verbs = ["runs past", "stands beside", "opens toward", "overlooks", "connects to", "waits near", "turns around", "leads down to"];
   const objects = ["the stone wall", "a row of lamps", "the eastern field", "a wooden gate", "the town square", "a shaded garden", "the long hallway", "a clear pond"];
   let out = "";
-  for (let i = 0; out.length < chars; i++) {
+  for (let i = offset; out.length < chars; i++) {
     out += `Note ${i + 1}: ${subjects[i % 8]} ${verbs[(i * 3 + 1) % 8]} ${objects[(i * 5 + 2) % 8]}, section ${(i * 7) % 97}.\n`;
   }
   return out.slice(0, chars);

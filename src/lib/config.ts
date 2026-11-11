@@ -21,6 +21,9 @@ const schema = z.object({
   FLOW_MIN_TURNS: num(2, 1),
   FLOW_WARN_THRESHOLD: flt(0.5),
   FLOW_STOP_STRIKES: num(2, 1),
+  CACHE_BREAKPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("0")),
+  CACHE_MIN_TOKENS: num(4096, 1),
+  LOREBOOK_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["afterFixed", "beforeInput"]).default("afterFixed")),
 });
 
 export type AppConfig = {
@@ -34,6 +37,8 @@ export type AppConfig = {
   /** 분류기 score가 이 값 이상이면 verdict와 무관하게 차단 */
   classifierBlockThreshold: number;
   classifierTimeoutMs: number;
+  /** 캐시 실험 옵션(E6 결과를 보고 기본값을 정한다). 기본값은 모두 "지금 동작 그대로" */
+  cache: { breakpoint: boolean; minTokens: number; lorebookPosition: "afterFixed" | "beforeInput" };
   flow: { windowTurns: number; minTurns: number; warnThreshold: number; stopStrikes: number };
 };
 
@@ -49,6 +54,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxOutputTokens: e.MAX_OUTPUT_TOKENS,
     classifierBlockThreshold: e.CLASSIFIER_BLOCK_THRESHOLD,
     classifierTimeoutMs: e.CLASSIFIER_TIMEOUT_MS,
+    cache: { breakpoint: e.CACHE_BREAKPOINT === "1" || e.CACHE_BREAKPOINT === "true", minTokens: e.CACHE_MIN_TOKENS, lorebookPosition: e.LOREBOOK_POSITION },
     flow: {
       windowTurns: e.FLOW_WINDOW_TURNS,
       minTurns: e.FLOW_MIN_TURNS,

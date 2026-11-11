@@ -78,6 +78,23 @@ describe("OpenAiCompatAdapter", () => {
     expect(await run({ prompt_tokens: 10, completion_tokens: 1 })).not.toHaveProperty("cost");
     expect(await run({ prompt_tokens: 10, completion_tokens: 1, cost: -1 })).not.toHaveProperty("cost");
   });
+  it("cacheBreakpoint 메시지는 content part 배열+cache_control로 보내고, 내부 필드는 제공사로 새지 않는다", async () => {
+    let body: { messages: unknown[] } = { messages: [] };
+    const adapter = new OpenAiCompatAdapter({
+      baseUrl: "http://x/v1",
+      apiKey: "k",
+      fetchImpl: async (_u, init) => {
+        body = JSON.parse(String(init!.body));
+        return sseResponse(["data: [DONE]\n\n"]);
+      },
+    });
+    await collect(adapter.stream({ model: "m", messages: [{ role: "system", content: "S", cacheBreakpoint: true }, { role: "user", content: "U" }] }));
+    expect(body.messages).toEqual([
+      { role: "system", content: [{ type: "text", text: "S", cache_control: { type: "ephemeral" } }] },
+      { role: "user", content: "U" },
+    ]);
+    expect(JSON.stringify(body)).not.toContain("cacheBreakpoint");
+  });
   it("usage가 없으면 null", async () => {
     const adapter = new OpenAiCompatAdapter({
       baseUrl: "http://x",

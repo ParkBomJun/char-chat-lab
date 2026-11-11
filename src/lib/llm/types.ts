@@ -1,4 +1,9 @@
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+  /** 이 메시지 끝에 캐시 breakpoint를 둔다(OpenRouter cache_control ephemeral). 어댑터가 content part 배열로 바꿔 보낸다. 모르는 어댑터는 무시 */
+  cacheBreakpoint?: boolean;
+};
 
 export type Usage = {
   inputTokens: number;

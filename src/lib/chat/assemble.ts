@@ -9,7 +9,27 @@ export type AssembleConfig = {
   promptTokenBudget: number;
   /** 로어북 블록 예산 */
   lorebookTokenBudget: number;
+  /**
+   * 로어북 블록 위치. 기본 "afterFixed"(고정 블록·요약 바로 뒤, 지금 동작).
+   * "beforeInput"이면 최근 대화 뒤·이번 입력 바로 앞: 로어북이 매 턴 바뀌어도 그 앞의 접두사(고정+요약+최근 대화)가 안 깨진다.
+   */
+  lorebookPosition?: LorebookPosition;
+  /** true면 '이번 입력 직전의 마지막 안정 메시지'에 캐시 breakpoint 표시(cacheBreakpoint)를 붙인다. 기본 false(붙이지 않음). */
+  cacheBreakpoint?: boolean;
+  /** breakpoint 앞부분이 이 토큰(제공사 기준 추정) 미만이면 붙이지 않는다. 기본 4096(Gemini 명시적 캐시 쓰기 최소 길이, E5 실측으로 1.75K는 효과 없음) */
+  cacheMinTokens?: number;
+  /** estimateTokens(글자 수)를 제공사 토큰으로 환산하는 배율. 기본 ESTIMATE_TO_REAL */
+  cacheEstimateScale?: number;
 };
+
+export type LorebookPosition = "afterFixed" | "beforeInput";
+
+/**
+ * estimateTokens는 글자당 1토큰으로 보수적으로 잡아 실제보다 크다. 실측(첫 턴 고정 블록: 약 1.3K토큰 vs 추정 2,356)으로 약 0.55배.
+ * breakpoint 최소 길이 판정에만 쓴다. 모델·언어가 달라지면 cacheEstimateScale로 조정한다.
+ */
+export const ESTIMATE_TO_REAL = 0.55;
+export const DEFAULT_CACHE_MIN_TOKENS = 4096;
 
 export type BlockTokens = {
   fixed: number;
@@ -30,6 +50,10 @@ export type AssembleResult = {
   droppedRecent: number;
   /** 고정 블록+이번 입력만으로 예산을 넘으면 true (이때도 둘은 자르지 않는다) */
   overBudget: boolean;
+  /** breakpoint를 붙인 messages 인덱스. 옵션이 꺼져 있거나 앞부분이 최소 길이 미만이면 null */
+  cacheBreakpointIndex: number | null;
+  /** breakpoint 후보 앞부분의 (환산된) 토큰 추정. 옵션이 꺼져 있으면 null. 진단용 */
+  cachePrefixTokens: number | null;
 };
 
 /**
@@ -106,11 +130,14 @@ export function assemblePrompt(
   }
 
   const chosen = selectLorebook(lorebookHits, config.lorebookTokenBudget);
+  const loreBeforeInput = config.lorebookPosition === "beforeInput";
   let lorebookTokens = 0;
+  let loreMessage: ChatMessage | null = null;
   if (chosen.length > 0) {
     const text = renderLorebookBlock(chosen.map((h) => h.content));
-    messages.push({ role: "system", content: text });
+    loreMessage = { role: "system", content: text };
     lorebookTokens = estimateTokens(text);
+    if (!loreBeforeInput) messages.push(loreMessage);
   }
 
   const input = estimateTokens(userInput);
@@ -130,7 +157,21 @@ export function assemblePrompt(
   for (const m of kept) {
     messages.push({ role: m.role === "USER" ? "user" : "assistant", content: m.content });
   }
+  // 안정 구간의 끝(여기까지가 캐시 접두사 후보). 로어북이 입력 앞에 오면 그 앞까지.
+  const stableEnd = messages.length - 1;
+  if (loreMessage && loreBeforeInput) messages.push(loreMessage);
   messages.push({ role: "user", content: userInput });
+
+  let cacheBreakpointIndex: number | null = null;
+  let cachePrefixTokens: number | null = null;
+  if (config.cacheBreakpoint) {
+    const raw = messages.slice(0, stableEnd + 1).reduce((n, m) => n + estimateTokens(m.content), 0);
+    cachePrefixTokens = Math.round(raw * (config.cacheEstimateScale ?? ESTIMATE_TO_REAL));
+    if (cachePrefixTokens >= (config.cacheMinTokens ?? DEFAULT_CACHE_MIN_TOKENS)) {
+      cacheBreakpointIndex = stableEnd;
+      messages[stableEnd] = { ...messages[stableEnd], cacheBreakpoint: true };
+    }
+  }
 
   const total = fixed + summaryTokens + lorebookTokens + recentTokens + input;
   return {
@@ -139,5 +180,7 @@ export function assemblePrompt(
     lorebookIds: chosen.map((h) => h.id),
     droppedRecent: candidates.length - kept.length,
     overBudget: total > config.promptTokenBudget,
+    cacheBreakpointIndex,
+    cachePrefixTokens,
   };
 }

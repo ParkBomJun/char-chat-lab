@@ -44,3 +44,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ RECENT_TURNS: "0" })).toThrow();
   });
 });
+
+describe("캐시 옵션 설정", () => {
+  it("기본값은 지금 동작 그대로(breakpoint 꺼짐, 로어북 고정 블록 뒤)", () => {
+    expect(loadConfig({}).cache).toEqual({ breakpoint: false, minTokens: 4096, lorebookPosition: "afterFixed" });
+  });
+  it("환경변수로 켠다. 잘못된 값은 오류", () => {
+    expect(loadConfig({ CACHE_BREAKPOINT: "1", LOREBOOK_POSITION: "beforeInput", CACHE_MIN_TOKENS: "5000" }).cache).toEqual({ breakpoint: true, minTokens: 5000, lorebookPosition: "beforeInput" });
+    expect(() => loadConfig({ LOREBOOK_POSITION: "middle" })).toThrow();
+  });
+});

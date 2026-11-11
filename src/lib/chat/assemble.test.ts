@@ -125,3 +125,57 @@ describe("로어북 예산 (SPEC 3-4)", () => {
     expect(text.indexOf("L")).toBeLessThan(text.indexOf("H"));
   });
 });
+
+describe("캐시 옵션(기본값은 지금 동작 그대로)", () => {
+  const hist = [H("USER", "a".repeat(3000)), H("ASSISTANT", "b".repeat(3000))];
+  const lore = [{ id: "l1", content: "설정A", priority: 1 }];
+
+  it("옵션을 안 주면 breakpoint 표시도 없고 로어북은 고정 블록 바로 뒤", () => {
+    const r = assemblePrompt(card, null, lore, hist, "입력", cfg);
+    expect(r.messages.some((m) => "cacheBreakpoint" in m)).toBe(false);
+    expect(r.cacheBreakpointIndex).toBeNull();
+    expect(r.cachePrefixTokens).toBeNull();
+    expect(r.messages[1].content).toContain("설정A");
+  });
+
+  it("lorebookPosition=beforeInput: 최근 대화 뒤·이번 입력 바로 앞, 다른 순서·내용은 같다", () => {
+    const a = assemblePrompt(card, null, lore, hist, "입력", cfg);
+    const b = assemblePrompt(card, null, lore, hist, "입력", { ...cfg, lorebookPosition: "beforeInput" });
+    expect(b.messages.at(-1)).toEqual({ role: "user", content: "입력" });
+    expect(b.messages.at(-2)?.content).toContain("설정A");
+    expect(b.messages.map((m) => m.content).sort()).toEqual(a.messages.map((m) => m.content).sort());
+    expect(b.blockTokens).toEqual(a.blockTokens);
+  });
+
+  it("로어북이 바뀌어도 beforeInput이면 앞부분(고정+대화)이 그대로라 접두사가 유지된다", () => {
+    const o = { ...cfg, lorebookPosition: "beforeInput" as const };
+    const a = assemblePrompt(card, null, lore, hist, "입력1", o).messages;
+    const b = assemblePrompt(card, null, [{ id: "l2", content: "다른 설정", priority: 1 }], hist, "입력2", o).messages;
+    expect(a.slice(0, -2)).toEqual(b.slice(0, -2));
+  });
+
+  it("cacheBreakpoint: 이번 입력 직전의 마지막 안정 메시지에 표시(앞부분 환산 4096 이상일 때)", () => {
+    const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
+    const r = assemblePrompt(card, null, [], big, "입력", { ...cfg, cacheBreakpoint: true });
+    expect(r.cacheBreakpointIndex).toBe(r.messages.length - 2);
+    expect(r.messages[r.messages.length - 2].cacheBreakpoint).toBe(true);
+    expect(r.messages.filter((m) => m.cacheBreakpoint)).toHaveLength(1);
+    expect(r.messages.at(-1)?.cacheBreakpoint).toBeUndefined();
+  });
+
+  it("로어북이 입력 앞에 있으면 breakpoint는 로어북이 아니라 그 앞의 안정 메시지", () => {
+    const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
+    const r = assemblePrompt(card, null, lore, big, "입력", { ...cfg, cacheBreakpoint: true, lorebookPosition: "beforeInput" });
+    expect(r.cacheBreakpointIndex).toBe(r.messages.length - 3);
+    expect(r.messages[r.cacheBreakpointIndex!].content).toBe("b".repeat(8000));
+  });
+
+  it("앞부분 환산 토큰이 최소 길이 미만이면 붙이지 않는다(환산·최소값은 옵션으로 조정)", () => {
+    const r = assemblePrompt(card, null, [], hist, "입력", { ...cfg, cacheBreakpoint: true });
+    expect(r.cacheBreakpointIndex).toBeNull();
+    expect(r.cachePrefixTokens).toBeGreaterThan(0);
+    expect(r.messages.some((m) => m.cacheBreakpoint)).toBe(false);
+    const forced = assemblePrompt(card, null, [], hist, "입력", { ...cfg, cacheBreakpoint: true, cacheMinTokens: 100 });
+    expect(forced.cacheBreakpointIndex).not.toBeNull();
+  });
+});

@@ -137,6 +137,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   const assembled = assemblePrompt(conv.character, summary?.content ?? null, lorebookHits, recent, userInput, {
     promptTokenBudget: config.promptTokenBudget,
     lorebookTokenBudget: config.lorebookTokenBudget,
+    lorebookPosition: config.cache.lorebookPosition,
+    cacheBreakpoint: config.cache.breakpoint,
+    cacheMinTokens: config.cache.minTokens,
   });
 
   const { adapter, chatModel } = rt.llm;

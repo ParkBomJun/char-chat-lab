@@ -149,14 +149,15 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
 async function probe() {
   if (!args.real) {
     console.log("실제 호출 실험입니다(비용 발생). 의도했다면 --real 을 붙여 다시 실행하세요:  npm run cache:probe -- --real");
-    console.log("호출 계획(전부 실행 시 15회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
+    console.log("호출 계획(전부 실행 시 17회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
     console.log("  E1  스트리밍 동일 요청 2회 + 비스트리밍 동일 요청 2회   (입력 약 1.9K토큰 × 4)");
     console.log("  E2  session_id 동일 요청 2회                          (약 1.9K × 2)");
     console.log("  E3  접두사가 이어지는 후속 1회                         (약 2K × 1)");
     console.log("  E4  길이 테스트: 고정 블록 + 중립 더미 텍스트, 약 4,500토큰 ×2회, 약 9,000토큰 ×2회 (session_id 포함)  → 입력 약 4.5K×2 + 9K×2");
     console.log("  E5  명시적 캐시: 고정 블록 메시지에 cache_control ephemeral, 동일 요청 2회 (session_id 포함, 약 1.9K×2)");
     console.log("  E5b 같은 방식인데 4,500토큰 규모(문서상 Gemini 명시적 캐시 쓰기 최소 길이가 4096토큰이라 E5만으로는 판단이 어려움) 2회");
-    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회)");
+    console.log("  E6  앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 각각 '처음' 1회씩(cache_control 포함, 2회) → 첫 요청부터 cached>0인지로 방식 판정");
+    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회) · --only E6 (2회)");
     return;
   }
   if (process.env.APP_ENV === "test" && process.env.ALLOW_REAL_LLM !== "1") throw new Error("APP_ENV=test에서는 ALLOW_REAL_LLM=1 없이 실제 호출을 하지 않습니다.");
@@ -191,7 +192,7 @@ async function probe() {
     await sleep(gap);
   };
 
-  const only = new Set((args.only ?? "E1,E2,E3,E4,E5").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+  const only = new Set((args.only ?? "E1,E2,E3,E4,E5,E6").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
   const want = (k: string) => only.has(k);
   const sid = args["session-id"] ?? `cache-probe-${Date.now()}`;
 
@@ -244,6 +245,19 @@ async function probe() {
     await run("E5b 4500토큰급+cache_control 두번째", m as ChatMessage[], true, { session_id: `${sid}-e5b` });
   }
 
+  // E6: 앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 '각각 처음' 보낸다(cache_control 포함). 맨 앞에 실행마다 다른 표식을 넣어 이전 실행의 캐시와도 겹치지 않게 한다.
+  // 둘 다 첫 요청부터 cached>0이면 "매 요청 할인" 방식, 0이면 "재사용" 방식(두 번째 이후에만 cached)이다.
+  if (want("E6")) {
+    const stamp = Date.now();
+    const variants = [{ tag: "alpha", offset: 0 }, { tag: "bravo", offset: 5000 }];
+    for (const v of variants) {
+      const filler = makeFiller(Math.max(0, 5000 - FIXED_TOKENS_GUESS) * cpt, v.offset);
+      const sys = `# 변형 ${v.tag}-${stamp}\n${filler}\n\n${A[0].content}`; // 앞부분(맨 처음 글자)부터 서로 다르다
+      const m = withCacheControl([{ role: "system", content: sys }, ...A.slice(1)]);
+      await run(`E6 서로 다른 앞부분 ${v.tag} (첫 요청)`, m as ChatMessage[], true, { session_id: `${sid}-e6-${v.tag}-${stamp}` });
+    }
+  }
+
   console.log("실험                                    prompt  cached  cacheWr  cost($)      completion   ms   id");
   for (const r of results) console.log(`${r.label.padEnd(40)} ${String(r.promptTokens ?? "-").padStart(6)} ${String(r.cached ?? "(없음)").padStart(7)} ${String(r.cacheWrite ?? "-").padStart(8)}  ${String(r.cost ?? "-").padEnd(11)} ${String(r.completion ?? "-").padStart(10)} ${String(r.ms).padStart(5)}  ${r.id ?? "-"}${r.note ? "  ⚠ " + r.note : ""}`);
   console.log("\n── usage 원문(마지막 청크/응답) ──");
@@ -251,6 +265,7 @@ async function probe() {
   console.log("\n해석 가이드: E1-2의 cached가 0보다 크면 이 모델은 캐시를 지원하고 우리 쪽 보고도 정상. E1-2가 0이고 E2-2(session_id)만 크면 라우팅 문제(session_id 필요).");
   console.log("E1/E2 모두 0이고 E1n(비스트리밍)만 크면 스트리밍 usage에 cached가 빠지는 것. 모두 0이면 모델 최소 길이 미달 또는 해당 모델/엔드포인트가 암시적 캐시 미지원.");
   console.log("E4: 4,500토큰급 두번째에서 cached가 생기고 1.9K급(E1/E2)에서만 0이면 최소 길이 문제. 9,000토큰급에서만 생기면 최소 길이가 더 크다. 전부 0이면 길이 때문이 아니다.");
+  console.log("E6 판정: alpha·bravo 둘 다 첫 요청에서 cached>0 → '매 요청 할인' 방식(cached는 재사용이 아니라 이번 요청에서 쓴 만큼을 센 값일 수 있음, cacheWr·cost와 대조). 둘 다 0 → '재사용' 방식(같은 접두사를 다시 보낼 때만 cached). 한쪽만 >0이면 원문 usage와 id로 확인.");
   console.log("E5/E5b: 두번째 요청에서 cached>0 이거나 첫번째에서 cacheWr>0 이면 명시적 캐시가 동작. 에러(HTTP 4xx)나 둘 다 0이면 이 모델/경로에서 cache_control이 무시되거나 최소 길이 미달(note/원문 usage 확인). cost 열은 제공사가 청구한 실제 금액이라 캐시 쓰기/읽기 단가 확인에도 쓴다.");
 }
 

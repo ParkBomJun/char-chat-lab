@@ -1,5 +1,5 @@
 import { SseParser } from "@/lib/sse";
-import { LlmError, type LlmAdapter, type LlmEvent, type LlmRequest, type Usage } from "./types";
+import { LlmError, type ChatMessage, type LlmAdapter, type LlmEvent, type LlmRequest, type Usage } from "./types";
 
 type OpenAiChunk = {
   /** OpenRouter 등은 스트림 도중 오류를 HTTP 200 위에 최상위 error 객체로 보낸다 */
@@ -31,6 +31,16 @@ export type OpenAiAdapterOptions = {
   fetchImpl?: typeof fetch;
 };
 
+/**
+ * 전송용 메시지. cacheBreakpoint가 있으면 content를 part 배열로 바꿔 cache_control을 붙인다
+ * (OpenRouter 문서: cache_control은 배열 형태의 content part에만 예시가 있고, Gemini는 마지막 breakpoint만 사용).
+ * 내부 표시 필드는 제공사로 새어 나가지 않게 항상 제거한다.
+ */
+export function toWireMessage(m: ChatMessage): { role: string; content: string | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }[] } {
+  if (!m.cacheBreakpoint) return { role: m.role, content: m.content };
+  return { role: m.role, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] };
+}
+
 /** OpenAI 호환 Chat Completions 스트리밍 어댑터. */
 export class OpenAiCompatAdapter implements LlmAdapter {
   readonly name = "openai-compat";
@@ -50,7 +60,7 @@ export class OpenAiCompatAdapter implements LlmAdapter {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.opts.apiKey}` },
         body: JSON.stringify({
           model: req.model,
-          messages: req.messages,
+          messages: req.messages.map(toWireMessage),
           stream: true,
           stream_options: { include_usage: true },
           ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),

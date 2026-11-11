@@ -40,6 +40,7 @@ describe("makeFiller", () => {
     expect(a.length).toBe(5000);
     expect(makeFiller(5000)).toBe(a);
     expect(makeFiller(0)).toBe("");
+    expect(makeFiller(300, 5000)).not.toBe(makeFiller(300, 0).slice(0, 300)); // E6: 오프셋이 다르면 맨 앞부터 다르다
     const lines = a.split("\n").filter(Boolean);
     expect(new Set(lines).size).toBe(lines.length);
   });
