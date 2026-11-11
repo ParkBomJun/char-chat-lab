@@ -219,6 +219,7 @@ model ModerationEvent {
 > - 부모 삭제 시 자식도 삭제(`onDelete: Cascade`): User→Conversation, Conversation→Message/MemorySummary, Character→LorebookEntry. (UsageLog·ModerationEvent는 분석용이라 관계 없이 id만 보관)
 > - `MemorySummary`에 `@@unique([conversationId, version])`. `coversUntilMsg`는 `Message.id`.
 > - (3단계) `UsageLog`에 `usageEstimated Boolean`(제공사 usage가 없어 글자 수로 추정한 행), `blockTokens Json?`(조립기의 블록별 추정 토큰) 추가.
+> - (4단계) 기억 구현 규칙: 최근 대화 = 최신 요약이 덮지 않은 메시지 전부. 원문 턴이 `RECENT_TURNS + SUMMARY_EVERY`(기본 30)가 되면 가장 오래된 `SUMMARY_EVERY`(10)턴을 요약에 합치고 `coversUntilMsg`를 그 마지막 메시지로 옮긴다(턴 경계에서만 끊음). 요약 갱신 사이에는 프롬프트 앞부분이 변하지 않아 캐시가 이어지고, 갱신 시점에만 한 번 깨진다. 요약 호출은 `LLM_CLASSIFIER_MODEL`(없으면 대화 모델), `UsageLog.kind=SUMMARY`.
 > - 포트: 로컬 DB는 호스트 5433(다른 Postgres와 충돌 방지). 세션은 JWT 전략(Credentials 제공자 제약), 토큰에 `uid`·`role` 포함.
 > - `next.config.ts`의 `cacheComponents`는 끔(전 화면이 사용자별 동적 화면이고 SSE가 핵심).
 

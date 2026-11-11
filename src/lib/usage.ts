@@ -7,7 +7,10 @@ export type UsageRowInput = {
   model: string;
   /** 제공사가 준 usage. 없으면(중간 중지 등) 글자 수로 추정한다. */
   usage: Usage | null;
-  blockTokens: BlockTokens;
+  /** 채팅 호출만 있다(요약·분류기는 null) */
+  blockTokens: BlockTokens | null;
+  /** usage가 없을 때 입력 토큰 추정값 */
+  estimatedInputTokens: number;
   outputText: string;
   ttftMs: number | null;
   totalMs: number;
@@ -23,12 +26,12 @@ export type UsageRowData = {
   estCost: string;
   ttftMs: number | null;
   totalMs: number;
-  blockTokens: BlockTokens;
+  blockTokens: BlockTokens | null;
 };
 
 export function buildUsageRow(i: UsageRowInput, table: PricingTable = pricing): UsageRowData {
   const usage: Usage = i.usage ?? {
-    inputTokens: i.blockTokens.total,
+    inputTokens: i.estimatedInputTokens,
     cachedInputTokens: 0,
     outputTokens: estimateTokens(i.outputText),
   };

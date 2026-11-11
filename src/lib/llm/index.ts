@@ -2,7 +2,12 @@ import { MockAdapter } from "./mock";
 import { OpenAiCompatAdapter } from "./openai";
 import type { LlmAdapter } from "./types";
 
-export type LlmConfig = { adapter: LlmAdapter; chatModel: string };
+export type LlmConfig = {
+  adapter: LlmAdapter;
+  chatModel: string;
+  /** 요약·분류기 같은 보조 호출용 저가 모델. LLM_CLASSIFIER_MODEL, 비어 있으면 chatModel */
+  lightModel: string;
+};
 
 /**
  * LLM_API_KEY가 있으면 OpenAI 호환 어댑터, 없으면 mock.
@@ -21,7 +26,8 @@ export function getLlm(env: LlmEnv = process.env): LlmConfig {
         apiKey: key,
       }),
       chatModel: model,
+      lightModel: env.LLM_CLASSIFIER_MODEL?.trim() || model,
     };
   }
-  return { adapter: new MockAdapter(), chatModel: "mock-model" };
+  return { adapter: new MockAdapter(), chatModel: "mock-model", lightModel: "mock-model" };
 }

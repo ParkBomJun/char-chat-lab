@@ -107,6 +107,8 @@ describe("MockAdapter / getLlm", () => {
     expect(getLlm({}).adapter.name).toBe("mock");
     expect(() => getLlm({ LLM_API_KEY: "k" })).toThrow(/LLM_CHAT_MODEL/);
     expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m" }).adapter.name).toBe("openai-compat");
+    expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m" }).lightModel).toBe("m");
+    expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m", LLM_CLASSIFIER_MODEL: "cheap" }).lightModel).toBe("cheap");
     expect(getLlm({ LLM_API_KEY: "k", LLM_CHAT_MODEL: "m", LLM_PROVIDER: "mock" }).adapter.name).toBe("mock");
   });
 });

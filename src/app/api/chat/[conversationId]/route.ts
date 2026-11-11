@@ -1,6 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { loadConfig } from "@/lib/config";
 import { getLlm } from "@/lib/llm";
@@ -8,6 +9,7 @@ import { LlmError, type Usage } from "@/lib/llm/types";
 import { assemblePrompt } from "@/lib/chat/assemble";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
+import { updateSummaryForConversation } from "@/lib/memory/db";
 
 export const dynamic = "force-dynamic";
 
@@ -36,24 +38,45 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   const config = loadConfig();
 
   // 이번 입력을 저장하기 전에 기존 대화를 읽는다(조립기에는 "이번 입력"을 따로 넘긴다).
+  // 최근 대화 = 최신 요약이 덮지 않은 메시지 전부. 요약 갱신 사이에는 시작점이 고정돼
+  // 프롬프트 앞부분이 변하지 않으므로 제공사 캐시가 이어진다. (SPEC 3-3)
+  const summary = await prisma.memorySummary.findFirst({
+    where: { conversationId: conv.id },
+    orderBy: { version: "desc" },
+    select: { content: true, coversUntilMsg: true },
+  });
+  const cover = summary
+    ? await prisma.message.findUnique({ where: { id: summary.coversUntilMsg }, select: { createdAt: true } })
+    : null;
   const recent = (
     await prisma.message.findMany({
-      where: { conversationId: conv.id, retracted: false },
-      orderBy: { createdAt: "desc" },
-      take: config.recentTurns * 2,
+      where: { conversationId: conv.id, retracted: false, ...(cover ? { createdAt: { gt: cover.createdAt } } : {}) },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 200, // 요약이 계속 실패해도 조회량이 무한히 커지지 않게 하는 안전 상한(실제 길이는 토큰 예산이 정한다)
       select: { role: true, content: true },
     })
   ).reverse();
 
   await prisma.message.create({ data: { conversationId: conv.id, role: "USER", content: userInput } });
 
-  // 4~5단계에서 요약·로어북이 여기로 들어온다.
-  const assembled = assemblePrompt(conv.character, null, [], recent, userInput, {
+  // 5단계에서 로어북이 여기로 들어온다.
+  const assembled = assemblePrompt(conv.character, summary?.content ?? null, [], recent, userInput, {
     promptTokenBudget: config.promptTokenBudget,
     lorebookTokenBudget: config.lorebookTokenBudget,
   });
 
   const { adapter, chatModel } = getLlm();
+
+  // 응답을 다 보낸 뒤 실행된다(응답 속도 보호). 서버리스에서도 끊기지 않도록 after() 사용.
+  after(async () => {
+    try {
+      const r = await updateSummaryForConversation(conv.id, session.user.id);
+      if (r.updated) console.log(`[memory] 요약 v${r.version} 갱신 (${r.summarizedMessages}개 메시지)`);
+    } catch (e) {
+      console.error("[memory] 요약 갱신 실패(다음 턴에 재시도)", e);
+    }
+  });
+
   const startedAt = Date.now();
   const encoder = new TextEncoder();
 
@@ -108,12 +131,13 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             model: chatModel,
             usage,
             blockTokens: assembled.blockTokens,
+            estimatedInputTokens: assembled.blockTokens.total,
             outputText: text,
             ttftMs,
             totalMs: Date.now() - startedAt,
           });
           await prisma.usageLog.create({
-            data: { userId: session.user.id, conversationId: conv.id, kind: "CHAT", ...row },
+            data: { userId: session.user.id, conversationId: conv.id, kind: "CHAT", ...row, blockTokens: row.blockTokens ?? Prisma.DbNull },
           });
         } catch (e) {
           console.error("[chat] UsageLog 기록 실패", e);
