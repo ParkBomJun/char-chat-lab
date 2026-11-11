@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getLlm } from "@/lib/llm";
-import { maskKey, mergeLlmEnv, mergePricing, parseLlmForm, redact, toSettings, validateBaseUrl, type LlmSettings } from "./llm-settings";
+import { PRESETS, baseUrlHint, maskKey, mergeLlmEnv, mergePricing, parseLlmForm, redact, toSettings, validateBaseUrl, type LlmSettings } from "./llm-settings";
 
 const S: LlmSettings = { baseUrl: "https://api.example.com/v1", apiKey: "sk-test-1234567890", chatModel: "big", classifierModel: "small", structuredOutput: true, pricing: {} };
 const fd = (o: Record<string, string>) => {
@@ -95,5 +95,27 @@ describe("mergePricing", () => {
     );
     expect(Object.keys(t.models).sort()).toEqual(["a", "b"]);
     expect(t.models.a.inputPer1M).toBe(9);
+  });
+});
+
+describe("OpenRouter 프리셋·주소 힌트", () => {
+  it("프리셋 주소는 유효한 https이고 OpenRouter는 구조화 출력이 기본 off", () => {
+    expect(validateBaseUrl(PRESETS.openrouter.baseUrl)).toEqual({ ok: true, url: "https://openrouter.ai/api/v1" });
+    expect(validateBaseUrl(PRESETS.openai.baseUrl)).toMatchObject({ ok: true });
+    expect(PRESETS.openrouter.structuredOutput).toBe(false);
+    expect(PRESETS.openai.structuredOutput).toBe(true);
+  });
+  it("OpenRouter에서 경로를 잘못 넣으면 힌트, 맞거나 다른 호스트면 null", () => {
+    expect(baseUrlHint("https://openrouter.ai/v1")).toContain("https://openrouter.ai/api/v1");
+    expect(baseUrlHint("https://openrouter.ai")).toContain("/api/v1");
+    expect(baseUrlHint("https://openrouter.ai/api/v1")).toBeNull();
+    expect(baseUrlHint("https://openrouter.ai/api/v1/")).toBeNull();
+    expect(baseUrlHint("https://api.openai.com/v1")).toBeNull();
+    expect(baseUrlHint("garbage")).toBeNull();
+  });
+  it("슬래시가 든 모델 이름(provider/model)을 허용한다", () => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries({ baseUrl: "https://openrouter.ai/api/v1", apiKey: "k", chatModel: "provider/model-name:free", classifierModel: "other/small" })) f.set(k, v);
+    expect(parseLlmForm(f)).toMatchObject({ ok: true, data: { chatModel: "provider/model-name:free" } });
   });
 });

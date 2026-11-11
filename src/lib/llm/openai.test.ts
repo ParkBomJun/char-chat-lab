@@ -85,6 +85,38 @@ describe("OpenAiCompatAdapter", () => {
     });
   });
 
+  it("★ 스트림 도중 error 청크(HTTP 200)는 오류로 던진다 — 삼키면 빈/잘린 응답이 된다", async () => {
+    const adapter = new OpenAiCompatAdapter({
+      baseUrl: "http://x",
+      apiKey: "k",
+      fetchImpl: async () =>
+        sseResponse([
+          chunk({ choices: [{ delta: { content: "일부" } }] }),
+          chunk({ error: { code: 502, message: "Provider disconnected" }, choices: [{ delta: { content: "" }, finish_reason: "error" }] }),
+          "data: [DONE]\n\n",
+        ]),
+    });
+    await expect(collect(adapter.stream({ model: "m", messages: [] }))).rejects.toMatchObject({ name: "LlmError", message: expect.stringContaining("Provider disconnected") });
+  });
+
+  it("OpenRouter식 스트림: SSE 주석 줄과, choices가 비어 있지 않은 마지막 usage 청크를 처리한다", async () => {
+    const adapter = new OpenAiCompatAdapter({
+      baseUrl: "http://x",
+      apiKey: "k",
+      fetchImpl: async () =>
+        sseResponse([
+          ": OPENROUTER PROCESSING\n\n",
+          chunk({ choices: [{ delta: { content: "안녕" } }] }),
+          ": OPENROUTER PROCESSING\n\n",
+          chunk({ choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 50, completion_tokens: 3 } }),
+          "data: [DONE]\n\n",
+        ]),
+    });
+    const events = await collect(adapter.stream({ model: "provider/model", messages: [] }));
+    expect(events[0]).toEqual({ type: "delta", text: "안녕" });
+    expect(events.at(-1)).toEqual({ type: "done", usage: { inputTokens: 50, cachedInputTokens: 0, outputTokens: 3 } });
+  });
+
   it("네트워크 오류도 LlmError로 감싼다", async () => {
     const adapter = new OpenAiCompatAdapter({
       baseUrl: "http://x",

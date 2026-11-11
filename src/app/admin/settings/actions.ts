@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/admin/guard";
 import { LlmClassifier } from "@/lib/safety/classifier";
 import { OpenAiCompatAdapter } from "@/lib/llm/openai";
 import { collectText } from "@/lib/llm/collect";
-import { parseLlmForm, redact, toSettings } from "@/lib/llm-settings";
+import { baseUrlHint, parseLlmForm, redact, toSettings } from "@/lib/llm-settings";
 import { clearLlmSettings, loadLlmSettingsFresh, saveLlmSettings } from "@/lib/settings-db";
 
 export type SaveResult = { ok: true; message: string } | { ok: false; error: string };
@@ -88,9 +88,11 @@ export async function testLlmAction(fd: FormData): Promise<TestResult> {
     checks.push({ name: `안전 분류기 (${clsModel})`, ok: false, detail: redact(e instanceof Error ? e.message : String(e), apiKey), ms: Date.now() - t2 });
   }
 
-  let hint: string | null = null;
+  let hint: string | null = baseUrlHint(d.baseUrl);
   const [chat, cls] = checks;
-  if (!chat.ok && !cls.ok && /401|403|invalid|incorrect|unauthor/i.test(chat.detail)) hint = "키가 거절됐습니다. 키와 API 주소가 같은 제공사의 것인지 확인해 보세요.";
+  if (hint) {
+    /* 주소가 잘못됐을 가능성이 가장 크므로 이 힌트를 우선한다 */
+  } else if (!chat.ok && !cls.ok && /401|403|invalid|incorrect|unauthor/i.test(chat.detail)) hint = "키가 거절됐습니다. 키와 API 주소가 같은 제공사의 것인지 확인해 보세요.";
   else if (!chat.ok && /404|model/i.test(chat.detail)) hint = "모델 이름이 맞는지, 주소(/v1 까지)가 맞는지 확인해 보세요.";
   else if (chat.ok && !cls.ok && d.structuredOutput) hint = "분류기가 실패했습니다. 제공사가 json_schema 구조화 출력을 지원하지 않을 수 있습니다. '구조화 출력' 체크를 끄고 다시 테스트해 보세요.";
   else if (chat.ok && !cls.ok) hint = "분류기 모델이 판정 JSON 형식을 지키지 못했습니다. 더 지시를 잘 따르는 모델로 바꿔 보세요. 형식이 틀리면 안전 검사가 모든 입력을 차단합니다(fail closed).";

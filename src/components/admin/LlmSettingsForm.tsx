@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { PRESETS } from "@/lib/llm-settings";
 import { clearLlmAction, saveLlmAction, testLlmAction, type SaveResult, type TestResult } from "@/app/admin/settings/actions";
 
 export type LlmFormInitial = {
@@ -51,12 +52,32 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
       setBusy(null);
     });
 
+  const [presetNote, setPresetNote] = useState<string | null>(null);
+  const applyPreset = (k: keyof typeof PRESETS) => {
+    const f = formRef.current;
+    if (!f) return;
+    (f.elements.namedItem("baseUrl") as HTMLInputElement).value = PRESETS[k].baseUrl;
+    (f.elements.namedItem("structuredOutput") as HTMLInputElement).checked = PRESETS[k].structuredOutput;
+    setTest(null);
+    setPresetNote(
+      k === "openrouter"
+        ? "OpenRouter: 모델 이름은 '제공사/모델' 형식입니다(openrouter.ai/models에서 복사). 모델마다 구조화 출력 지원이 달라 기본으로 껐습니다. 키는 OpenRouter 계정의 API 키입니다."
+        : "OpenAI 주소로 채웠습니다.",
+    );
+  };
+
   const num = (name: string, v: number) => (
     <input name={name} type="number" step="any" min={0} defaultValue={v} />
   );
 
   return (
     <form ref={formRef} className="admin-form" onSubmit={(e) => { e.preventDefault(); run("save"); }} autoComplete="off">
+      <div className="inline">
+        <span className="who">프리셋(주소만 채움):</span>
+        <button type="button" className="ghost" onClick={() => applyPreset("openai")}>OpenAI</button>
+        <button type="button" className="ghost" onClick={() => applyPreset("openrouter")}>OpenRouter</button>
+      </div>
+      {presetNote && <p className="who">{presetNote}</p>}
       <label>
         API 주소 (OpenAI 호환, /v1 까지)
         <input name="baseUrl" defaultValue={initial.baseUrl} required placeholder="https://api.openai.com/v1" />
@@ -67,7 +88,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
       </label>
       <label>
         대화 모델
-        <input name="chatModel" defaultValue={initial.chatModel} required placeholder="제공사의 모델 이름" />
+        <input name="chatModel" defaultValue={initial.chatModel} required placeholder="예: 제공사/모델이름 (OpenRouter) 또는 모델 이름" />
       </label>
       <label>
         분류기·요약 모델 <span className="who">(안전 검사와 요약에 쓰는 저가 모델. 비우면 대화 모델)</span>

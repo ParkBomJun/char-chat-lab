@@ -2,6 +2,8 @@ import { SseParser } from "@/lib/sse";
 import { LlmError, type LlmAdapter, type LlmEvent, type LlmRequest, type Usage } from "./types";
 
 type OpenAiChunk = {
+  /** OpenRouter 등은 스트림 도중 오류를 HTTP 200 위에 최상위 error 객체로 보낸다 */
+  error?: { message?: unknown; code?: unknown } | null;
   choices?: { delta?: { content?: string | null } }[];
   usage?: {
     prompt_tokens?: number;
@@ -71,6 +73,11 @@ export class OpenAiCompatAdapter implements LlmAdapter {
           parsed = JSON.parse(frame.data);
         } catch {
           continue; // 깨진 프레임은 건너뛴다
+        }
+        if (parsed.error) {
+          // 이미 200으로 시작한 스트림이라 상태 코드로는 알 수 없다. 오류를 삼키면 빈 응답이나 잘린 응답으로 보인다.
+          const msg = typeof parsed.error.message === "string" ? parsed.error.message : "알 수 없는 오류";
+          throw new LlmError(`LLM 스트림 오류: ${msg.slice(0, 200)}`);
         }
         const text = parsed.choices?.[0]?.delta?.content;
         if (text) yield { type: "delta", text };

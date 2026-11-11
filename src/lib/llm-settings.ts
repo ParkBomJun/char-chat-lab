@@ -148,3 +148,23 @@ export function redact(message: string, secret: string | null | undefined): stri
   m = m.replace(/(sk-|key-|Bearer\s+)[A-Za-z0-9_\-]{8,}/g, "$1***");
   return m.length > 240 ? `${m.slice(0, 240)}…` : m;
 }
+
+export const PRESETS = {
+  openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", structuredOutput: true },
+  /** OpenRouter: 모델마다 구조화 출력(json_schema) 지원이 달라 미지원 모델은 요청이 오류로 실패한다 → 기본 off */
+  openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", structuredOutput: false },
+} as const;
+
+/** OpenRouter 주소를 잘못 넣은 흔한 경우(예: https://openrouter.ai/v1)를 알려 준다. 맞으면 null. */
+export function baseUrlHint(baseUrl: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+  if (/(^|\.)openrouter\.ai$/.test(u.hostname) && u.pathname.replace(/\/+$/, "") !== "/api/v1") {
+    return `OpenRouter의 주소는 ${PRESETS.openrouter.baseUrl} 입니다(지금 입력한 경로는 ${u.pathname || "/"}).`;
+  }
+  return null;
+}
