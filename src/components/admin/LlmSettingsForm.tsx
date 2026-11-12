@@ -85,7 +85,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
         <input name="baseUrl" defaultValue={initial.baseUrl} required placeholder="https://api.openai.com/v1" />
       </label>
       <label>
-        API 키 {initial.keyHint ? <span className="who">(저장된 키: {initial.keyHint} — 비워 두면 유지)</span> : <span className="who">(저장된 키 없음)</span>}
+        <span>API 키 {initial.keyHint ? <span className="who">(저장된 키: {initial.keyHint} — 비워 두면 유지)</span> : <span className="who">(저장된 키 없음)</span>}</span>
         <input name="apiKey" type="password" autoComplete="new-password" placeholder={initial.keyHint ? "바꾸려면 새 키를 붙여넣기" : "키를 붙여넣기"} />
       </label>
       <label>
@@ -93,7 +93,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
         <input name="chatModel" defaultValue={initial.chatModel} required placeholder="예: 제공사/모델이름 (OpenRouter) 또는 모델 이름" />
       </label>
       <label>
-        분류기·요약 모델 <span className="who">(안전 검사와 요약에 쓰는 저가 모델. 비우면 대화 모델)</span>
+        <span>분류기·요약 모델 <span className="who">(안전 검사와 요약에 쓰는 저가 모델. 비우면 대화 모델)</span></span>
         <input name="classifierModel" defaultValue={initial.classifierModel} placeholder="비워도 됨" />
       </label>
       <label className="check">
@@ -103,7 +103,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
 
       <div className="inline">
         <label>
-          추론(reasoning) 강도 <span className="who">(추론 모델이 느리거나 빈 응답을 줄 때 낮추세요)</span>
+          <span>추론(reasoning) 강도 <span className="who">(추론 모델이 느리거나 빈 응답을 줄 때 낮추세요)</span></span>
           <select name="reasoningEffort" defaultValue={initial.reasoningEffort}>
             <option value="">모델 기본값(보내지 않음)</option>
             <option value="none">none — 끄기(끌 수 없는 모델은 오류)</option>
@@ -114,7 +114,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
           </select>
         </label>
         <label>
-          최대 출력 토큰 <span className="who">(0 = 서버 기본값. 추론 토큰도 여기서 소모됨)</span>
+          <span>최대 출력 토큰 <span className="who">(0 = 서버 기본값. 추론 토큰도 여기서 소모됨)</span></span>
           <input name="maxOutputTokens" type="number" min={0} step={1} defaultValue={initial.maxOutputTokens} />
         </label>
       </div>
@@ -133,7 +133,7 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
       <div className="inline">
         <button type="button" className="btn line" disabled={pending} onClick={() => run("test")}>{busy === "test" ? "테스트 중…" : "연결 테스트"}</button>
         <button type="submit" className="btn" disabled={pending}>{busy === "save" ? "저장 중…" : "저장"}</button>
-        <button type="button" className="btn line danger" disabled={pending} onClick={() => run("clear")}>저장된 설정 삭제</button>
+        <button type="button" className="btn line danger push" disabled={pending} onClick={() => run("clear")}>저장된 설정 삭제</button>
       </div>
 
       {save && <p className={save.ok ? "ok" : "error"}>{save.ok ? save.message : save.error}</p>}

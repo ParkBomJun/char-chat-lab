@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { Verdict } from "@/components/admin/Verdict";
+import { kstStamp } from "@/lib/kst";
 import type { Prisma } from "@/generated/prisma/client";
 
 const PAGE_SIZE = 50;
@@ -39,9 +41,9 @@ export default async function ModerationLog(props: PageProps<"/admin/moderation"
   };
 
   return (
-    <>
-      <h1>안전 판정 로그</h1>
-      <p className="who">사용자 메시지 원문은 저장하지 않습니다(단계·카테고리·점수·조치만).</p>
+    <section className="sec">
+      <h1 className="h1">안전 판정 로그</h1>
+      <p className="small">사용자 메시지 원문은 저장하지 않습니다(단계·카테고리·점수·조치만).</p>
       <form className="filters" method="get">
         <label>단계
           <select name="stage" defaultValue={stage ?? ""}>
@@ -57,31 +59,33 @@ export default async function ModerationLog(props: PageProps<"/admin/moderation"
         </label>
         <label>카테고리 <input name="category" defaultValue={category} placeholder="예: sexual" /></label>
         <label className="check"><input type="checkbox" name="turns" value="1" defaultChecked={showTurns} /> 턴 점수 행 포함</label>
-        <button type="submit" className="btn">필터 적용</button>
+        <button type="submit" className="btn line">필터 적용</button>
       </form>
 
-      <p className="who">{total.toLocaleString("ko-KR")}건 · {page}/{pages} 페이지</p>
-      <table className="admin-table">
-        <thead>
-          <tr><th>시각(KST)</th><th>대화</th><th>단계</th><th>층</th><th>판정</th><th>카테고리</th><th>점수</th><th>조치</th><th>오류 원인</th></tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan={9}>조건에 맞는 기록이 없습니다.</td></tr>}
-          {rows.map((r) => (
-            <tr key={r.id} className={r.verdict === "BLOCK" ? "row-block" : r.verdict === "ERROR" ? "row-error" : ""}>
-              <td>{r.createdAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</td>
-              <td title={r.conversationId}>{r.conversationId.slice(-6)}</td>
-              <td>{r.stage}</td><td>{r.layer}</td><td>{r.verdict}</td>
-              <td>{r.category ?? "—"}</td><td>{r.score === null ? "—" : r.score.toFixed(2)}</td><td>{r.action}</td>
-              <td>{r.verdict === "ERROR" ? [r.errorKind ?? "unknown", r.httpStatus, r.finishReason].filter((x) => x !== null).join(" · ") : "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <p className="small">{total.toLocaleString("ko-KR")}건 · {page}/{pages} 페이지</p>
+      <div className="tbl-wrap">
+        <table className="admin-table" style={{ minWidth: 860 }}>
+          <thead>
+            <tr><th scope="col">시각(KST)</th><th scope="col">대화</th><th scope="col">단계</th><th scope="col">층</th><th scope="col">판정</th><th scope="col">카테고리</th><th scope="col" className="num">점수</th><th scope="col">조치</th><th scope="col">오류 원인</th></tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan={9}>조건에 맞는 기록이 없습니다.</td></tr>}
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="nowrap">{kstStamp(r.createdAt)}</td>
+                <td className="dim" title={r.conversationId}>{r.conversationId.slice(-6)}</td>
+                <td>{r.stage}</td><td className="dim">{r.layer}</td><td><Verdict v={r.verdict} /></td>
+                <td className={r.category && r.category !== "none" ? undefined : "dim"}>{r.category ?? "—"}</td><td className="num">{r.score === null ? "—" : r.score.toFixed(2)}</td><td className={r.action === "none" ? "dim" : undefined}>{r.action}</td>
+                <td className="dim">{r.verdict === "ERROR" ? [r.errorKind ?? "unknown", r.httpStatus, r.finishReason].filter((x) => x !== null).join(" · ") : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="pager">
         {page > 1 && <Link href={qs({ page: page - 1 })}>← 이전</Link>}
         {page < pages && <Link href={qs({ page: page + 1 })}>다음 →</Link>}
       </p>
-    </>
+    </section>
   );
 }

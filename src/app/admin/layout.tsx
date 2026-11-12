@@ -1,23 +1,22 @@
 import Link from "next/link";
+import { AdminTabs } from "@/components/admin/AdminTabs";
 import { requireAdmin } from "@/lib/admin/guard";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "관리자" };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
   return (
-    <>
-      <header className="site-header">
-        <Link href="/">← 서비스로</Link>
-        <nav className="admin-nav">
-          <Link href="/admin">요약</Link>
-          <Link href="/admin/moderation">판정 로그</Link>
-          <Link href="/admin/characters">캐릭터</Link>
-          <Link href="/admin/settings">LLM 설정</Link>
-        </nav>
-        <span className="who">관리자 {admin.email}</span>
+    <div className="admin">
+      <header className="top admin-top">
+        <div className="wrap">
+          <Link href="/" className="brand">정원 도서관<small>관리자</small></Link>
+          <AdminTabs />
+          <span className="small">{admin.email}</span>
+        </div>
       </header>
-      <main className="page wide">{children}</main>
-    </>
+      <main className="wrap admin-main">{children}</main>
+    </div>
   );
 }

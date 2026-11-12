@@ -16,19 +16,19 @@ export default async function SettingsPage() {
   const p = (m: string) => table.models[m] ?? table.default;
 
   return (
-    <>
-      <h1>LLM 설정</h1>
-      <p className="who">
+    <section className="sec">
+      <h1 className="h1">LLM 설정</h1>
+      <p className="note-s">
         여기서 API 키·모델·단가를 넣으면 <strong>재시작 없이 바로</strong>(저장 직후 다음 요청부터) 대화, 안전 분류기, 요약에 적용됩니다. 화면 설정이 환경변수보다 우선합니다.
       </p>
 
-      <div className="stat-grid">
-        <div className="stat"><div className="who">현재 사용 중인 설정</div><div className="stat-value" style={{ fontSize: "1rem" }}>{SOURCE_LABEL[rt.source]}</div></div>
-        <div className="stat"><div className="who">어댑터</div><div className="stat-value" style={{ fontSize: "1rem" }}>{rt.llm.adapter.name}</div></div>
-        <div className="stat"><div className="who">대화 / 분류기·요약 모델</div><div className="stat-value" style={{ fontSize: "1rem" }}>{rt.llm.chatModel} / {rt.llm.lightModel}</div></div>
+      <div className="stats three">
+        <div className="stat"><span>현재 사용 중인 설정</span><b className="txt">{SOURCE_LABEL[rt.source]}</b></div>
+        <div className="stat"><span>어댑터</span><b className="txt">{rt.llm.adapter.name}</b></div>
+        <div className="stat"><span>대화 / 분류기·요약 모델</span><b className="txt">{rt.llm.chatModel} / {rt.llm.lightModel}</b></div>
       </div>
 
-      {rt.source === "mock" && <p className="error">지금은 가짜 응답(mock)입니다. 아래에 키를 넣고 저장하면 실제 모델로 바뀝니다.</p>}
+      {rt.source === "mock" && <p className="warn">지금은 가짜 응답(mock)입니다. 아래에 키를 넣고 저장하면 실제 모델로 바뀝니다.</p>}
       {keyUnreadable && <p className="error">저장된 키를 읽을 수 없습니다(AUTH_SECRET이 바뀌었을 수 있음). 키를 다시 입력해 저장해 주세요.</p>}
 
       <LlmSettingsForm
@@ -45,7 +45,7 @@ export default async function SettingsPage() {
         }}
       />
 
-      <h2>알아둘 점</h2>
+      <h2 className="h2 gap">알아둘 점</h2>
       <ul className="notes">
         <li>키는 <strong>암호화(AES-256-GCM)해서 DB에 저장</strong>하고, 이 화면에 다시 보여 주지 않습니다(끝 4자리만 표시). 암호화 키는 <code>AUTH_SECRET</code>에서 만들어지므로 <code>AUTH_SECRET</code>을 바꾸면 저장된 키는 읽을 수 없게 됩니다.</li>
         <li>DB와 <code>AUTH_SECRET</code>이 함께 유출되면 키도 유출됩니다. <strong>공개 운영에서는 환경변수로 주입하는 쪽이 더 안전</strong>하고, 이 화면은 개발·데모에서 바로 써 보기 위한 용도입니다.</li>
@@ -53,6 +53,6 @@ export default async function SettingsPage() {
         <li>안전 분류기가 판정 JSON을 올바른 형식으로 돌려주지 못하면(또는 호출이 실패하면) 안전 검사는 <strong>모든 입력을 차단</strong>합니다(fail closed). 저장 전에 <strong>연결 테스트</strong>로 확인하세요.</li>
         <li>주소는 https만 허용합니다(로컬 테스트용 <code>http://localhost</code> 제외). 제공사가 OpenAI 호환 <code>/chat/completions</code> 스트리밍을 지원해야 합니다.</li>
       </ul>
-    </>
+    </section>
   );
 }
