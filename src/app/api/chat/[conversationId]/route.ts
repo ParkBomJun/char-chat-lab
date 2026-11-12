@@ -143,6 +143,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     lorebookPosition: config.cache.lorebookPosition,
     cacheBreakpoint: config.cache.breakpoint,
     cacheMinTokens: config.cache.minTokens,
+    cacheBreakpointPosition: config.cache.breakpointPosition,
   });
 
   const { adapter, chatModel } = rt.llm;

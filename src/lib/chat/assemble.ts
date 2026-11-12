@@ -15,8 +15,14 @@ export type AssembleConfig = {
    * "beforeInput"이면 최근 대화 뒤·이번 입력 바로 앞: 로어북이 매 턴 바뀌어도 그 앞의 접두사(고정+요약+최근 대화)가 안 깨진다.
    */
   lorebookPosition?: LorebookPosition;
-  /** true면 '이번 입력 직전의 마지막 안정 메시지'에 캐시 breakpoint 표시(cacheBreakpoint)를 붙인다. 기본 false(붙이지 않음). */
+  /** true면 캐시 breakpoint 표시(cacheBreakpoint)를 붙인다. 기본 false(붙이지 않음). 위치는 cacheBreakpointPosition */
   cacheBreakpoint?: boolean;
+  /**
+   * 표시 위치. 기본 "beforeInput": 이번 입력 직전의 마지막 안정 메시지(턴마다 뒤로 옮겨 간다 → 매 턴 앞부분 전체가 캐시 생성 요금).
+   * "fixedBlock": 고정 블록(첫 system 메시지) 끝에 고정(턴이 바뀌어도 같은 위치 → 고정 블록은 재사용, 그 뒤 이력은 일반 요금).
+   * 비교 실측은 docs/CACHE.md.
+   */
+  cacheBreakpointPosition?: CacheBreakpointPosition;
   /** breakpoint 앞부분이 이 토큰(제공사 기준 추정) 미만이면 붙이지 않는다. 기본 3500. 실측 문턱은 3,555~4,159토큰 사이(E7)이고, 문턱 미달 요청에 표시가 붙어도 일반 요금이라 손해가 없어 문턱 구간 아래로 잡았다(docs/CACHE.md) */
   cacheMinTokens?: number;
   /** estimateTokens(글자 수)를 제공사 토큰으로 환산하는 배율. 기본 ESTIMATE_TO_REAL */
@@ -24,6 +30,7 @@ export type AssembleConfig = {
 };
 
 export type LorebookPosition = "afterFixed" | "beforeInput";
+export type CacheBreakpointPosition = "beforeInput" | "fixedBlock";
 
 /**
  * estimateTokens는 글자당 1토큰으로 보수적으로 잡아 실제보다 크다. 실측(첫 턴 고정 블록: 약 1.3K토큰 vs 추정 2,356)으로 약 0.55배.
@@ -170,11 +177,13 @@ export function assemblePrompt(
   let cacheBreakpointIndex: number | null = null;
   let cachePrefixTokens: number | null = null;
   if (config.cacheBreakpoint) {
-    const raw = messages.slice(0, stableEnd + 1).reduce((n, m) => n + estimateTokens(m.content), 0);
+    // fixedBlock이면 표시는 항상 첫 메시지(고정 블록)이고, 최소 길이도 고정 블록만으로 판정한다
+    const at = config.cacheBreakpointPosition === "fixedBlock" ? 0 : stableEnd;
+    const raw = messages.slice(0, at + 1).reduce((n, m) => n + estimateTokens(m.content), 0);
     cachePrefixTokens = Math.round(raw * (config.cacheEstimateScale ?? ESTIMATE_TO_REAL));
     if (cachePrefixTokens >= (config.cacheMinTokens ?? DEFAULT_CACHE_MIN_TOKENS)) {
-      cacheBreakpointIndex = stableEnd;
-      messages[stableEnd] = { ...messages[stableEnd], cacheBreakpoint: true };
+      cacheBreakpointIndex = at;
+      messages[at] = { ...messages[at], cacheBreakpoint: true };
     }
   }
 

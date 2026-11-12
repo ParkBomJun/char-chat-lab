@@ -26,6 +26,7 @@ const schema = z.object({
   QUALITY_MIN_HANGUL_RATIO: flt(0.9),
   CACHE_BREAKPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("1")),
   CACHE_MIN_TOKENS: num(3500, 1),
+  CACHE_BREAKPOINT_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["beforeInput", "fixedBlock"]).default("beforeInput")),
   LOREBOOK_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["afterFixed", "beforeInput"]).default("afterFixed")),
 });
 
@@ -43,7 +44,7 @@ export type AppConfig = {
   classifierRetries: number;
   classifierRetryDelayMs: number;
   /** 캐시 실험 옵션(E6 결과를 보고 기본값을 정한다). 기본: breakpoint 켬(E6 실측 후 결정, 2026-11-11), 로어북은 고정 블록 뒤 */
-  cache: { breakpoint: boolean; minTokens: number; lorebookPosition: "afterFixed" | "beforeInput" };
+  cache: { breakpoint: boolean; minTokens: number; breakpointPosition: "beforeInput" | "fixedBlock"; lorebookPosition: "afterFixed" | "beforeInput" };
   flow: { windowTurns: number; minTurns: number; warnThreshold: number; stopStrikes: number };
   /** 응답 품질 지표의 표시 기준(기록·표시용, 차단에 쓰지 않는다): 한글 비율이 이 값 미만이면 '외국어 섞임'으로 센다 */
   quality: { minHangulRatio: number };
@@ -63,7 +64,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     classifierTimeoutMs: e.CLASSIFIER_TIMEOUT_MS,
     classifierRetries: Math.min(e.CLASSIFIER_RETRIES, 2),
     classifierRetryDelayMs: Math.min(e.CLASSIFIER_RETRY_DELAY_MS, 5000),
-    cache: { breakpoint: e.CACHE_BREAKPOINT === "1" || e.CACHE_BREAKPOINT === "true", minTokens: e.CACHE_MIN_TOKENS, lorebookPosition: e.LOREBOOK_POSITION },
+    cache: { breakpoint: e.CACHE_BREAKPOINT === "1" || e.CACHE_BREAKPOINT === "true", minTokens: e.CACHE_MIN_TOKENS, lorebookPosition: e.LOREBOOK_POSITION, breakpointPosition: e.CACHE_BREAKPOINT_POSITION },
     quality: { minHangulRatio: e.QUALITY_MIN_HANGUL_RATIO },
     flow: {
       windowTurns: e.FLOW_WINDOW_TURNS,

@@ -163,6 +163,35 @@ describe("캐시 옵션(기본값은 지금 동작 그대로)", () => {
     expect(r.messages.at(-1)?.cacheBreakpoint).toBeUndefined();
   });
 
+  it("★ 표시 위치 기본값은 beforeInput(지금 동작): 옵션을 주지 않으면 이번 입력 직전 메시지, 턴이 늘면 뒤로 옮겨 간다", () => {
+    const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
+    const o = { ...cfg, cacheBreakpoint: true };
+    const r1 = assemblePrompt(card, null, [], big, "입력", o);
+    const r1explicit = assemblePrompt(card, null, [], big, "입력", { ...o, cacheBreakpointPosition: "beforeInput" });
+    expect(r1.cacheBreakpointIndex).toBe(r1.messages.length - 2);
+    expect(r1explicit.messages).toEqual(r1.messages);
+    const r2 = assemblePrompt(card, null, [], [...big, H("USER", "입력"), H("ASSISTANT", "응답")], "다음 입력", o);
+    expect(r2.cacheBreakpointIndex).toBe(r2.messages.length - 2);
+    expect(r2.cacheBreakpointIndex).toBeGreaterThan(r1.cacheBreakpointIndex!);
+  });
+
+  it("fixedBlock: 표시는 항상 고정 블록(첫 메시지)에만 붙고 턴이 늘어도 위치가 같다. 최소 길이는 고정 블록만으로 판정", () => {
+    const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
+    const o = { ...cfg, cacheBreakpoint: true, cacheBreakpointPosition: "fixedBlock" as const, cacheMinTokens: 1 };
+    const r1 = assemblePrompt(card, null, lore, big, "입력", o);
+    const r2 = assemblePrompt(card, null, lore, [...big, H("USER", "입력"), H("ASSISTANT", "응답")], "다음 입력", o);
+    for (const r of [r1, r2]) {
+      expect(r.cacheBreakpointIndex).toBe(0);
+      expect(r.messages[0].role).toBe("system");
+      expect(r.messages.filter((m) => m.cacheBreakpoint)).toHaveLength(1);
+    }
+    expect(r2.messages[0]).toEqual(r1.messages[0]); // 고정 블록까지의 앞부분이 턴마다 같다
+    // 이력이 아무리 길어도 고정 블록이 최소 길이 미만이면 붙이지 않는다(이 테스트 카드의 고정 블록은 짧다)
+    expect(assemblePrompt(card, null, [], big, "입력", { ...o, cacheMinTokens: 3500 }).cacheBreakpointIndex).toBeNull();
+    // 표시를 끄면 위치 옵션은 아무 영향이 없다
+    expect(assemblePrompt(card, null, [], big, "입력", { ...cfg, cacheBreakpointPosition: "fixedBlock" }).messages.some((m) => m.cacheBreakpoint)).toBe(false);
+  });
+
   it("로어북이 입력 앞에 있으면 breakpoint는 로어북이 아니라 그 앞의 안정 메시지", () => {
     const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
     const r = assemblePrompt(card, null, lore, big, "입력", { ...cfg, cacheBreakpoint: true, lorebookPosition: "beforeInput" });
