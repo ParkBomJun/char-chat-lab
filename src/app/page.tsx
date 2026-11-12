@@ -116,7 +116,7 @@ export default async function Home() {
       </main>
       <footer className="foot">
         <div className="wrap">
-          <span>포트폴리오 프로젝트 · char-chat-lab</span>
+          <span>개인 개발 프로젝트 · char-chat-lab</span>
           <Link href="/privacy">데모 서비스 안내</Link>
         </div>
       </footer>

@@ -29,7 +29,7 @@ export function AuthForm({ title, submitLabel, action, alt, passwordAutoComplete
             </div>
           )}
         </div>
-        <span className="tiny">전 연령 서비스 · 포트폴리오 프로젝트 char-chat-lab</span>
+        <span className="tiny">전 연령 서비스 · 개인 개발 프로젝트 char-chat-lab</span>
       </div>
       <main className="login-main">
         <form className="form" action={formAction}>
