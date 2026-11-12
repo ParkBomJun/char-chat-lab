@@ -24,6 +24,7 @@
     "dev:test": "tsx scripts/test-run.ts -- next dev -p 3110",
     "test:leak": "tsx scripts/test-run.ts -- tsx scripts/e2e-leak-check.ts",
     "test:card": "tsx scripts/test-run.ts -- tsx scripts/e2e-card-check.ts",
+    "bench:turn": "tsx scripts/test-run.ts -- tsx scripts/bench-turn.ts",
     "dev:test:real": "tsx scripts/test-run.ts --real -- next dev -p 3110",
     "eval:judge": "tsx eval/tools/judge-report.ts",
     "eval:convert": "tsx eval/tools/convert-redteam.ts",
