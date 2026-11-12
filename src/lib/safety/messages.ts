@@ -12,3 +12,8 @@ export const NOTICE = {
   warned: "대화 수위가 계속 올라가고 있어요. 이런 흐름이 이어지면 대화가 중단될 수 있어요.",
   stopped: "서비스 이용 기준에 맞지 않는 대화가 반복되어 이 대화를 중단했어요.",
 } as const;
+
+/** 일일 한도 안내. 서버(429 응답)와 화면이 같은 문구를 쓴다. 숫자는 설정값(DAILY_MESSAGE_LIMIT)에서 온다. */
+export function dailyLimitNotice(limit: number): string {
+  return `오늘 보낼 수 있는 메시지(${limit}개)를 모두 사용했어요. 내일 다시 이용해 주세요.`;
+}

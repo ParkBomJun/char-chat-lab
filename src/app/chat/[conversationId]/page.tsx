@@ -31,7 +31,8 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
   });
   if (!conv) notFound();
 
-  const remaining = remainingMessages(loadConfig().dailyMessageLimit, await countTodayMessages(session.user.id));
+  const dailyLimit = loadConfig().dailyMessageLimit;
+  const remaining = remainingMessages(dailyLimit, await countTodayMessages(session.user.id));
 
   const name = conv.character.name;
   const art = resolveArt(conv.character);
@@ -53,7 +54,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
           <span className="ai-note">AI와의 대화입니다</span>
         </div>
       </header>
-      <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} characterArt={art} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} />
+      <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} characterArt={art} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} dailyLimit={dailyLimit} />
     </div>
   );
 }

@@ -15,7 +15,7 @@ import { updateSummaryForConversation } from "@/lib/memory/db";
 import { planLorebook } from "@/lib/lorebook/plan";
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
-import { NOTICE } from "@/lib/safety/messages";
+import { NOTICE, dailyLimitNotice } from "@/lib/safety/messages";
 import { applyFlow, logClassifierCalls, saveEvents, saveNotice } from "@/lib/safety/persist";
 import { countTodayMessages } from "@/lib/daily-limit";
 import { saveResponseMetric } from "@/lib/quality/persist";
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   });
   if (used >= config.dailyMessageLimit) {
     return Response.json(
-      { error: `오늘 보낼 수 있는 메시지(${config.dailyMessageLimit}개)를 모두 사용했어요. 내일 다시 이용해 주세요.` },
+      { error: dailyLimitNotice(config.dailyMessageLimit) },
       { status: 429, headers: remainingHeader(false) },
     );
   }

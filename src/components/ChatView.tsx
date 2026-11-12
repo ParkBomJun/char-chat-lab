@@ -5,7 +5,7 @@ import { startConversationAction } from "@/app/actions/conversation";
 import { Avatar } from "@/components/CharacterArt";
 import type { CharacterArt } from "@/lib/character-art";
 import { splitActions, splitHotlines, subjectParticle } from "@/lib/chat/display";
-import { NOTICE } from "@/lib/safety/messages";
+import { NOTICE, dailyLimitNotice } from "@/lib/safety/messages";
 import { SseParser } from "@/lib/sse";
 
 export type ViewMessage = { id: string; role: "USER" | "ASSISTANT" | "SYSTEM_NOTICE"; content: string };
@@ -23,6 +23,7 @@ export function ChatView({
   initialMessages,
   initialStopped,
   initialRemaining,
+  dailyLimit,
 }: {
   conversationId: string;
   characterId: string;
@@ -31,6 +32,8 @@ export function ChatView({
   initialMessages: ViewMessage[];
   initialStopped: boolean;
   initialRemaining: number;
+  /** 일일 한도(설정값). 한도 안내 문구에 쓴다 */
+  dailyLimit: number;
 }) {
   const [messages, setMessages] = useState<ViewMessage[]>(initialMessages);
   const [stopped, setStopped] = useState(initialStopped);
@@ -189,7 +192,7 @@ export function ChatView({
       >
         {error && <p className="banner err" role="alert">{error}</p>}
         {out && !stopped && (
-          <p className="banner lim" role="status">오늘 사용할 수 있는 메시지를 모두 사용했어요. 내일 다시 이용해 주세요.</p>
+          <p className="banner lim" role="status">{dailyLimitNotice(dailyLimit)}</p>
         )}
         <div className={`box${locked ? " locked" : ""}`}>
           <label className="sr" htmlFor="chat-input">메시지</label>
