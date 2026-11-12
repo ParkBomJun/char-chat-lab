@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { validateKeywords } from "../src/lib/lorebook/keywords";
+import { CARD_FIELD_LABEL, assertCardSafe, categoryLabel } from "../src/lib/safety/card-check";
 import haru from "./seed-data/haru.json";
 
 const prisma = new PrismaClient({
@@ -20,6 +21,10 @@ const preserve = process.env.SEED_PRESERVE === "1";
 const resetPasswords = !preserve || process.env.SEED_RESET_PASSWORDS === "1";
 
 async function main() {
+  // 카드 안전 검사(관리자 화면 저장과 같은 규칙, 모델 호출 없음). HARD 적중이면 DB에 아무것도 쓰기 전에 중단한다.
+  const cardWarnings = assertCardSafe(haru.character, haru.lorebook, `시드 캐릭터 "${haru.character.name}"`);
+  if (cardWarnings.length) console.warn(`⚠ 카드 안전 검사 경고(저장은 진행): ${cardWarnings.map((w) => `${CARD_FIELD_LABEL[w.field]}(${categoryLabel(w.category)})`).join(", ")}`);
+
   const email = (process.env.DEMO_EMAIL ?? "demo@example.com").toLowerCase();
   const password = process.env.DEMO_PASSWORD;
   if (!password) throw new Error("DEMO_PASSWORD가 .env에 없습니다.");

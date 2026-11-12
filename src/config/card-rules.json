@@ -1,0 +1,40 @@
+{
+  "_note": "카드 저장 단계 전용 규칙(관리자 화면의 캐릭터·로어북 저장, seed). 대화 입력·출력에는 쓰지 않는다. 형식은 safety-rules.json과 같다. 카드에는 safety-rules.json의 차단 규칙도 함께 적용된다(src/lib/safety/card-check.ts). 여기에는 카드에만 해당하는 것을 둔다: 카드 본문이 모델에게 '시스템·안전 지시를 무시하라'고 시키는 지시문(대화 입력 규칙은 사용자의 말투에 맞춰져 있어 카드 문체를 못 잡는다), 그리고 영문 성적 표현(대화 규칙은 한국어 위주다). hard = 저장 거부, soft = 경고만 보여 주고 저장 허용.",
+  "rules": [
+    {
+      "category": "jailbreak",
+      "kind": "block",
+      "tier": "hard",
+      "appliesTo": ["card"],
+      "regex": [
+        "(시스템|상위|운영자|개발자|안전|플랫폼|서비스)\\s*(의\\s*)?(지시|지침|명령|프롬프트|규칙|제약|정책|가이드라인)[^.\\n]{0,20}(무시|따르지\\s*(마|말|않)|잊어|우회|어겨)",
+        "(위|앞|이전|기존|모든|다른|어떤)\\s*(의\\s*)?(지시|지침|명령|규칙|제약)[^.\\n]{0,12}(무시|따르지\\s*(마|말)|잊어)",
+        "(ignore|disregard|bypass|override)\\s+(all\\s+|any\\s+|the\\s+|such\\s+|these\\s+|those\\s+|your\\s+)*(previous\\s+|prior\\s+|above\\s+|system\\s+|safety\\s+|other\\s+|meta\\s+)*(instructions?|prompts?|rules|constraints?|guidelines|warnings?|polic(y|ies)|restrictions?)",
+        "(do\\s+not|don'?t|never)\\s+(follow|obey|comply\\s+with)\\s+(such\\s+|any\\s+|the\\s+|these\\s+|those\\s+|an?\\s+)*(system|safety|meta|injections?|instructions?|rules|guidelines|constraints?|warnings?)",
+        "prompt\\s+injection",
+        "system\\s+(constraints?|instructions?|prompts?)[^.\\n]{0,60}(ignore|disregard|bypass|override)"
+      ]
+    },
+    {
+      "category": "jailbreak",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["card"],
+      "regex": ["(검열|필터링?|안전\\s*장치)[^.\\n]{0,10}(없이|해제|무시|우회|끄)", "\\b(uncensored|unfiltered|jailbreak)\\b"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "tier": "hard",
+      "appliesTo": ["card"],
+      "regex": ["\\b(porn\\w*|erogenous|orgasm\\w*|genitals?|hentai)\\b", "(forced|coerci\\w+|non-?consensual)[^.\\n]{0,20}\\bsex\\b"]
+    },
+    {
+      "category": "sexual",
+      "kind": "block",
+      "tier": "soft",
+      "appliesTo": ["card"],
+      "regex": ["\\b(sex|sexual|nsfw|erotic\\w*|nude|naked|non-?consensual)\\b"]
+    }
+  ]
+}

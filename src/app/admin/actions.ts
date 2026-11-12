@@ -4,6 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin/guard";
 import { parseCharacterForm, parseLoreForm } from "@/lib/admin/forms";
+import { saveCharacterChecked, saveLoreChecked } from "@/lib/admin/card-save";
+import { encodeFindings } from "@/lib/safety/card-check";
 
 export type CharacterFormState = { error?: string; values?: Record<string, string | boolean> } | undefined;
 
@@ -14,22 +16,23 @@ export async function saveCharacterAction(_prev: CharacterFormState, fd: FormDat
   await requireAdmin();
   const id = String(fd.get("id") ?? "");
 
-  const parsed = parseCharacterForm(fd);
-  if (!parsed.ok) {
-    // 긴 텍스트를 다시 쓰지 않도록 입력값을 되돌려 준다
+  // 긴 텍스트를 다시 쓰지 않도록 입력값을 되돌려 준다
+  const echo = (error: string): CharacterFormState => {
     const values: Record<string, string | boolean> = { isPublished: fd.get("isPublished") === "on" };
     for (const f of FIELDS) values[f] = String(fd.get(f) ?? "");
-    return { error: parsed.error, values };
-  }
+    return { error, values };
+  };
 
-  if (id) {
-    const exists = await prisma.character.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) notFound();
-    await prisma.character.update({ where: { id }, data: parsed.data });
-    redirect(`/admin/characters/${id}?saved=1`);
+  const parsed = parseCharacterForm(fd);
+  if (!parsed.ok) return echo(parsed.error);
+
+  // 카드 안전 검사(규칙 층, 모델 호출 없음): HARD면 저장하지 않고 사유를 보여 준다. SOFT는 저장 후 경고.
+  const r = await saveCharacterChecked(prisma, id || null, parsed.data);
+  if (!r.ok) {
+    if (r.reason === "not_found") notFound();
+    return echo(r.error);
   }
-  const created = await prisma.character.create({ data: parsed.data, select: { id: true } });
-  redirect(`/admin/characters/${created.id}?saved=1`);
+  redirect(`/admin/characters/${r.id}?saved=1${r.warnings.length ? `&warn=${encodeURIComponent(encodeFindings(r.warnings))}` : ""}`);
 }
 
 const back = (characterId: string, q: string) => `/admin/characters/${characterId}?${q}#lorebook`;
@@ -45,15 +48,13 @@ export async function saveLoreAction(fd: FormData) {
   const parsed = parseLoreForm(fd);
   if (!parsed.ok) redirect(back(characterId, `error=${encodeURIComponent(parsed.error)}`));
 
-  if (entryId) {
-    // 다른 캐릭터의 항목을 id만 바꿔 수정하지 못하게 소속을 함께 확인한다
-    const entry = await prisma.lorebookEntry.findFirst({ where: { id: entryId, characterId }, select: { id: true } });
-    if (!entry) notFound();
-    await prisma.lorebookEntry.update({ where: { id: entryId }, data: parsed.data });
-  } else {
-    await prisma.lorebookEntry.create({ data: { characterId, ...parsed.data } });
+  // 로어북 본문도 프롬프트에 그대로 들어가므로 같은 검사를 거친다
+  const r = await saveLoreChecked(prisma, characterId, entryId || null, parsed.data);
+  if (!r.ok) {
+    if (r.reason === "not_found") notFound();
+    redirect(back(characterId, `error=${encodeURIComponent(r.error)}`));
   }
-  redirect(back(characterId, "saved=lore"));
+  redirect(back(characterId, `saved=lore${r.warnings.length ? `&warn=${encodeURIComponent(encodeFindings(r.warnings))}` : ""}`));
 }
 
 export async function deleteLoreAction(fd: FormData) {

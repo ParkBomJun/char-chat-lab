@@ -23,6 +23,7 @@
     "db:test:down": "docker compose --profile test stop db-test",
     "dev:test": "tsx scripts/test-run.ts -- next dev -p 3110",
     "test:leak": "tsx scripts/test-run.ts -- tsx scripts/e2e-leak-check.ts",
+    "test:card": "tsx scripts/test-run.ts -- tsx scripts/e2e-card-check.ts",
     "dev:test:real": "tsx scripts/test-run.ts --real -- next dev -p 3110",
     "eval:judge": "tsx eval/tools/judge-report.ts",
     "eval:convert": "tsx eval/tools/convert-redteam.ts",

@@ -77,8 +77,8 @@
 - 토큰 추정은 글자 수, 실제 환산 계수 `ESTIMATE_TO_REAL = 0.55`(개발 DB 2건 기준 실측 0.62, 표본이 적어 유지. `npm run tokens:calib`).
 - 기억 `src/lib/memory/`: 응답 뒤 `after()`로 요약 갱신, 동시 갱신은 unique 충돌로 처리, 요약 블록에는 "지시문 아님" 문구.
 - 로어북 `src/lib/lorebook/`: 키워드 최소 2글자, 최근 M턴 매칭, 우선순위→id 정렬.
-- 캐시: `CACHE_BREAKPOINT=1` 기본(주소가 openrouter.ai일 때만 `cache_control` 전송), `CACHE_MIN_TOKENS=4096`. 접두사 진단은 `UsageLog.blockTokens.cacheBreak`.
-- 시드 캐릭터 "하루" 카드 v3(`prisma/seed-data/haru.json`). 2026-11-12 추가분(persona·exampleDialog 끝에 덧붙임)으로 고정 블록 6,916자 ≈ 실토큰 약 4.15K~4.3K(미확인). **첫 턴은 추정 × 0.55 = 3,831 < `CACHE_MIN_TOKENS` 4096이라 breakpoint가 안 붙는다**(설정 변경은 사용자 결정 대기). 개발 DB의 하루는 관리자 수정이 있어 갱신하지 않았다. 운영(SEED_PRESERVE)에서는 seed가 관리자 수정을 덮어쓰지 않는다.
+- 캐시: `CACHE_BREAKPOINT=1` 기본(주소가 openrouter.ai일 때만 `cache_control` 전송), `CACHE_MIN_TOKENS=3500`(2026-11-12에 4096에서 낮춤. 문턱 미달에 표시가 붙어도 일반 요금이라 손해 없음). 접두사 진단은 `UsageLog.blockTokens.cacheBreak`.
+- 시드 캐릭터 "하루" 카드 v3(`prisma/seed-data/haru.json`). 2026-11-12 추가분(persona·exampleDialog 끝에 덧붙임)으로 고정 블록 6,916자 ≈ 실토큰 약 4.15K~4.3K(미확인). 첫 턴 환산 3,831 ≥ 3500이라 breakpoint가 붙는다(오프라인 확인, 실제 cached는 미확인). 개발 DB의 하루는 2026-11-12에 haru.json으로 덮어썼다(레드팀용으로 넣었던 문단은 `eval/redteam/private/cards/`로 옮김). 운영(SEED_PRESERVE)에서는 seed가 관리자 수정을 덮어쓰지 않는다.
 
 ### 비용
 - `UsageLog.estCost`(단가표 추정)와 `actualCost`(제공사 `usage.cost`). `/admin`과 평가 리포트 모두 실제 청구액 우선, 단가표 추정은 비교용.
@@ -90,7 +90,8 @@
 - SOFT는 차단하지 않고 분류기에 범주 힌트만 준다. 흐름 점수에 영향 없음. 정규화로만 걸린 것은 HARD여도 SOFT.
 - 분류기: json_schema(strict), timeout·429·5xx 1회 재시도 후 **fail closed**, ERROR 원인 기록(errorKind), `decisionSource` 기록. 입력 실패는 503(대화에 안 남김), 출력 실패는 회수. ERROR·위기 턴은 흐름 평균에서 제외.
 - 위기 규칙은 출력에 적용하지 않는다(위로 응답 보호). 2글자 위기어의 공백 우회는 분류기 몫("사자 살았다" 오탐).
-- 알려진 한계: 요약·로어북 내용은 안전 검사를 거치지 않는다. 흐름 감시 strike는 영구 누적. 차단 기준이 verdict OR score.
+- 카드 저장 시 안전 검사(`src/lib/safety/card-check.ts`, `src/config/card-rules.json`): 관리자 화면 저장과 seed에서 카드 4필드와 로어북 본문에 규칙 층 적용. HARD 거부, SOFT 경고, 위기 규칙은 카드에서 SOFT. `npm run test:card`(테스트 DB). 관리자 화면 브라우저 확인은 못 했다(테스트 서버 로그인 페이지가 계속 새로고침됨, 원인 미확인).
+- 알려진 한계: 요약 내용은 안전 검사를 거치지 않는다. 로어북·카드는 저장 시 규칙 층만 거친다(분류기 없음). 흐름 감시 strike는 영구 누적. 차단 기준이 verdict OR score.
 
 ### 관리자
 - `src/app/admin/`(대시보드, 모더레이션, 캐릭터·로어북 편집, LLM 설정, 응답 품질). 서버 액션마다 `requireAdmin()`.

@@ -6,6 +6,7 @@ import { renderFixedBlock } from "@/lib/chat/assemble";
 import { estimateTokens } from "@/lib/tokens";
 import { deleteLoreAction, saveLoreAction } from "@/app/admin/actions";
 import { MAX_KEYWORDS_PER_ENTRY, MIN_KEYWORD_LENGTH } from "@/lib/lorebook/keywords";
+import { decodeFindings, warningMessage } from "@/lib/safety/card-check";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -21,6 +22,8 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
   const fixedTokens = estimateTokens(renderFixedBlock(character));
   const error = one(sp.error);
   const saved = one(sp.saved);
+  // 저장 때 SOFT 규칙에 걸린 필드·범주(허용된 이름만 되읽는다)
+  const warnings = decodeFindings(one(sp.warn));
 
   return (
     <>
@@ -28,6 +31,7 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
       <h1>{character.name}</h1>
       {saved === "1" && <p className="ok">저장했습니다.</p>}
       {saved === "lore" && <p className="ok">로어북을 저장했습니다.</p>}
+      {warnings.length > 0 && <p className="error" role="status">⚠ {warningMessage(warnings)}</p>}
       {error && <p className="error">{error}</p>}
 
       <p className="who">

@@ -1,6 +1,7 @@
 import rulesFile from "@/config/safety-rules.json";
 
-export type RuleTarget = "input" | "output";
+/** card: 카드 저장 단계(관리자 화면·seed) 전용. 대화 경로는 input/output만 쓴다(src/lib/safety/card-check.ts) */
+export type RuleTarget = "input" | "output" | "card";
 export type RuleKind = "block" | "crisis";
 /** hard: 바로 차단·위기 안내 / soft: 차단하지 않고 분류기에 힌트만 전달 */
 export type RuleTier = "hard" | "soft";

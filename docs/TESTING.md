@@ -57,6 +57,10 @@ npm run test:leak     # 터미널 B
 - 프로덕션 모드(`next start`)로 띄운 서버에 쓰려면 서버에 `AUTH_TRUST_HOST=true`가 필요하다. 다른 주소는 `E2E_BASE_URL`로 지정하되 `env=test` 확인은 그대로 적용된다.
 - 모델이 응답 텍스트로 persona를 흘리는 경우(프롬프트 유출 유도)는 이 테스트의 대상이 아니라 레드팀의 jailbreak·유출 범주가 본다.
 
+## 카드 저장 검사 통합 테스트 (`npm run test:card`)
+
+관리자 화면의 서버 액션이 쓰는 저장 함수(`src/lib/admin/card-save.ts`)를 테스트 DB에 대고 불러, 안전 규칙 HARD에 걸린 캐릭터·로어북이 저장되지 않고 SOFT는 경고와 함께 저장되는지 확인한다. 서버를 띄울 필요가 없고 모델을 부르지 않는다. `eval/redteam/private/cards/*.json`(비공개)이 있으면 그 카드들이 전부 거부되는지도 본다. 스크립트가 만든 행만 지운다. 관리자 화면의 표시(사유·경고 문구)는 이 테스트가 보지 않는다.
+
 ## 응답 품질 지표 재계산 (`npm run metrics:backfill`)
 
 기존 ASSISTANT 메시지의 `ResponseMetric`을 다시 계산한다(모델 호출 없음, 메시지는 읽기만 함).
