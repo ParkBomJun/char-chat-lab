@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { Avatar } from "@/components/CharacterArt";
 import { ChatView } from "@/components/ChatView";
 import { loadConfig } from "@/lib/config";
 import { countTodayMessages } from "@/lib/daily-limit";
@@ -18,6 +19,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
     where: { id: conversationId, userId: session.user.id },
     select: {
       status: true,
+      characterId: true,
       character: { select: { name: true } },
       messages: {
         where: { retracted: false },
@@ -30,14 +32,26 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
 
   const remaining = remainingMessages(loadConfig().dailyMessageLimit, await countTodayMessages(session.user.id));
 
+  const name = conv.character.name;
   return (
-    <>
-      <header className="site-header">
-        <Link href="/">← 캐릭터 목록</Link>
-        <strong>{conv.character.name}</strong>
-        <span className="who">AI와의 대화입니다</span>
+    <div className="chat">
+      <header className="top chat-top">
+        <div className="wrap">
+          <Link className="back" href="/" aria-label="목록으로">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+            <span>목록</span>
+          </Link>
+          <div className="chat-who">
+            <Avatar name={name} />
+            <div className="chat-who-txt">
+              <b>{name}</b>
+              <span className="ai-note m">AI와의 대화입니다</span>
+            </div>
+          </div>
+          <span className="ai-note">AI와의 대화입니다</span>
+        </div>
       </header>
-      <ChatView conversationId={conversationId} characterName={conv.character.name} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} />
-    </>
+      <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} />
+    </div>
   );
 }
