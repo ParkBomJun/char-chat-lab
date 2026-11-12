@@ -49,7 +49,7 @@ export function CharacterForm({ initial }: { initial: CharacterValues }) {
         공개 (캐릭터 목록에 표시)
       </label>
       {state?.error && <p className="error">{state.error}</p>}
-      <button type="submit" disabled={pending}>{pending ? "저장 중…" : "저장"}</button>
+      <button type="submit" className="btn" disabled={pending}>{pending ? "저장 중…" : "저장"}</button>
     </form>
   );
 }

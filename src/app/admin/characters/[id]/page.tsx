@@ -79,13 +79,13 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
             <div className="inline">
               <label>우선순위 <input name="priority" type="number" defaultValue={e.priority} min={-100} max={100} /></label>
               <label className="check"><input type="checkbox" name="enabled" defaultChecked={e.enabled} /> 활성</label>
-              <button type="submit">저장</button>
+              <button type="submit" className="btn">저장</button>
             </div>
           </form>
           <form action={deleteLoreAction}>
             <input type="hidden" name="characterId" value={character.id} />
             <input type="hidden" name="entryId" value={e.id} />
-            <button type="submit" className="danger">삭제</button>
+            <button type="submit" className="btn line danger">삭제</button>
           </form>
         </div>
       ))}
@@ -99,7 +99,7 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
           <div className="inline">
             <label>우선순위 <input name="priority" type="number" defaultValue={0} min={-100} max={100} /></label>
             <label className="check"><input type="checkbox" name="enabled" defaultChecked /> 활성</label>
-            <button type="submit">추가</button>
+            <button type="submit" className="btn">추가</button>
           </div>
         </form>
       </div>

@@ -146,9 +146,9 @@ export function ChatView({
           disabled={sending || stopped || remaining <= 0}
         />
         {sending ? (
-          <button type="button" onClick={() => abortRef.current?.abort()}>중지</button>
+          <button type="button" className="btn line" onClick={() => abortRef.current?.abort()}>중지</button>
         ) : (
-          <button type="submit" disabled={!input.trim() || stopped || remaining <= 0}>전송</button>
+          <button type="submit" className="btn" disabled={!input.trim() || stopped || remaining <= 0}>전송</button>
         )}
       </form>
     </div>

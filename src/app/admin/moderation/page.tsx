@@ -57,7 +57,7 @@ export default async function ModerationLog(props: PageProps<"/admin/moderation"
         </label>
         <label>카테고리 <input name="category" defaultValue={category} placeholder="예: sexual" /></label>
         <label className="check"><input type="checkbox" name="turns" value="1" defaultChecked={showTurns} /> 턴 점수 행 포함</label>
-        <button type="submit">필터 적용</button>
+        <button type="submit" className="btn">필터 적용</button>
       </form>
 
       <p className="who">{total.toLocaleString("ko-KR")}건 · {page}/{pages} 페이지</p>

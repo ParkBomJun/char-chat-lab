@@ -113,7 +113,7 @@ export default async function AdminHome(props: PageProps<"/admin">) {
             ))}
           </select>
         </label>
-        <button type="submit">적용</button>
+        <button type="submit" className="btn">적용</button>
       </form>
       {qs.n === 0 ? (
         <p className="who">이 조건에 해당하는 응답 지표가 없습니다. 이전 메시지는 <code>npm run metrics:backfill</code>로 계산할 수 있습니다.</p>

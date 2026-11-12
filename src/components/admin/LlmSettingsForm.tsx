@@ -76,8 +76,8 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
     <form ref={formRef} className="admin-form" onSubmit={(e) => { e.preventDefault(); run("save"); }} autoComplete="off">
       <div className="inline">
         <span className="who">프리셋(주소만 채움):</span>
-        <button type="button" className="ghost" onClick={() => applyPreset("openai")}>OpenAI</button>
-        <button type="button" className="ghost" onClick={() => applyPreset("openrouter")}>OpenRouter</button>
+        <button type="button" className="btn line" onClick={() => applyPreset("openai")}>OpenAI</button>
+        <button type="button" className="btn line" onClick={() => applyPreset("openrouter")}>OpenRouter</button>
       </div>
       {presetNote && <p className="who">{presetNote}</p>}
       <label>
@@ -131,9 +131,9 @@ export function LlmSettingsForm({ initial }: { initial: LlmFormInitial }) {
       </fieldset>
 
       <div className="inline">
-        <button type="button" disabled={pending} onClick={() => run("test")}>{busy === "test" ? "테스트 중…" : "연결 테스트"}</button>
-        <button type="submit" disabled={pending}>{busy === "save" ? "저장 중…" : "저장"}</button>
-        <button type="button" className="danger" disabled={pending} onClick={() => run("clear")}>저장된 설정 삭제</button>
+        <button type="button" className="btn line" disabled={pending} onClick={() => run("test")}>{busy === "test" ? "테스트 중…" : "연결 테스트"}</button>
+        <button type="submit" className="btn" disabled={pending}>{busy === "save" ? "저장 중…" : "저장"}</button>
+        <button type="button" className="btn line danger" disabled={pending} onClick={() => run("clear")}>저장된 설정 삭제</button>
       </div>
 
       {save && <p className={save.ok ? "ok" : "error"}>{save.ok ? save.message : save.error}</p>}

@@ -1,11 +1,11 @@
 import Link from "next/link";
 
-export const metadata = { title: "데모 서비스 안내 · char-chat-lab" };
+export const metadata = { title: "데모 서비스 안내" };
 
 export default function PrivacyPage() {
   const contact = process.env.CONTACT_EMAIL?.trim();
   return (
-    <main className="page">
+    <main className="wrap prose">
       <p><Link href="/">← 처음으로</Link></p>
       <h1>데모 서비스 안내</h1>
       <p>

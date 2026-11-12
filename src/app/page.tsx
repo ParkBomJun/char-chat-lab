@@ -26,13 +26,15 @@ export default async function Home() {
 
   return (
     <>
-      <header className="site-header">
-        <strong>char-chat-lab</strong>
-        <form action={logoutAction}>
-          {session.user.role === "ADMIN" && <Link href="/admin" className="who">관리자 </Link>}
-          <span className="who">{session.user.email}</span>
-          <button type="submit" className="link">로그아웃</button>
-        </form>
+      <header className="top">
+        <div className="wrap">
+          <Link href="/" className="brand">정원 도서관</Link>
+          <form action={logoutAction} className="nav" aria-label="계정">
+            {session.user.role === "ADMIN" && <Link href="/admin">관리자</Link>}
+            <span className="email">{session.user.email}</span>
+            <button type="submit">로그아웃</button>
+          </form>
+        </div>
       </header>
       <main className="page">
         <h1>캐릭터</h1>
@@ -47,7 +49,7 @@ export default async function Home() {
                 <p>{c.tagline}</p>
                 <form action={startConversationAction}>
                   <input type="hidden" name="characterId" value={c.id} />
-                  <button type="submit">대화 시작</button>
+                  <button type="submit" className="btn">대화 시작</button>
                 </form>
               </article>
             ))}

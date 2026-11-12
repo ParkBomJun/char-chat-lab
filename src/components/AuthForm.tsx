@@ -27,7 +27,7 @@ export function AuthForm({ title, submitLabel, action, alt, passwordAutoComplete
           <input name="password" type="password" autoComplete={passwordAutoComplete} required minLength={8} />
         </label>
         {state?.error && <p role="alert" className="error">{state.error}</p>}
-        <button type="submit" disabled={pending}>{pending ? "처리 중…" : submitLabel}</button>
+        <button type="submit" className="btn" disabled={pending}>{pending ? "처리 중…" : submitLabel}</button>
       </form>
       <p><Link href={alt.href}>{alt.label}</Link></p>
       <p className="who">
