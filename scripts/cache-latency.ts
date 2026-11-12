@@ -2,7 +2,7 @@
  * 지연·비용 비교: 같은 N턴 시나리오를 cache breakpoint 끔/켬으로 돌려 ttft·total·actualCost의 p50/p95를 표로 낸다.
  *   npm run cache:latency                      호출 없이 계획만 출력
  *   npm run cache:latency -- --real            실제 호출(비용 발생). 기본: 2라운드 × 2개 방식 × 10턴 = 40회
- * 옵션: --rounds 2 · --turns 10 · --reply-chars 700(과거 응답 길이) · --min-tokens(breakpoint 최소 길이, 기본은 서비스 규칙 4096)
+ * 옵션: --rounds 2 · --turns 10 · --reply-chars 700(과거 응답 길이) · --min-tokens(breakpoint 최소 길이, 기본은 서비스 규칙 3500)
  *       --min-tokens 0 이면 모든 턴에 breakpoint를 붙인다(규칙 없이 효과만 보고 싶을 때) · --gap 1(호출 사이 초) · --max-out 128
  * 설계:
  *  - 대화 기록은 매 턴 '고정된 가짜 응답'으로 채워, 두 방식의 프롬프트가 바이트 단위로 같고(breakpoint 표시만 다름) 재현된다. 모델의 실제 응답 길이는 영향이 없다.

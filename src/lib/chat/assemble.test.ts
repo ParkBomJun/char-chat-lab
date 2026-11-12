@@ -154,7 +154,7 @@ describe("캐시 옵션(기본값은 지금 동작 그대로)", () => {
     expect(a.slice(0, -2)).toEqual(b.slice(0, -2));
   });
 
-  it("cacheBreakpoint: 이번 입력 직전의 마지막 안정 메시지에 표시(앞부분 환산 4096 이상일 때)", () => {
+  it("cacheBreakpoint: 이번 입력 직전의 마지막 안정 메시지에 표시(앞부분 환산이 최소 길이 이상일 때)", () => {
     const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
     const r = assemblePrompt(card, null, [], big, "입력", { ...cfg, cacheBreakpoint: true });
     expect(r.cacheBreakpointIndex).toBe(r.messages.length - 2);

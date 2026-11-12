@@ -25,7 +25,7 @@ const schema = z.object({
   FLOW_STOP_STRIKES: num(2, 1),
   QUALITY_MIN_HANGUL_RATIO: flt(0.9),
   CACHE_BREAKPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("1")),
-  CACHE_MIN_TOKENS: num(4096, 1),
+  CACHE_MIN_TOKENS: num(3500, 1),
   LOREBOOK_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["afterFixed", "beforeInput"]).default("afterFixed")),
 });
 

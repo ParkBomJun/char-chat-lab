@@ -17,7 +17,7 @@ export type AssembleConfig = {
   lorebookPosition?: LorebookPosition;
   /** true면 '이번 입력 직전의 마지막 안정 메시지'에 캐시 breakpoint 표시(cacheBreakpoint)를 붙인다. 기본 false(붙이지 않음). */
   cacheBreakpoint?: boolean;
-  /** breakpoint 앞부분이 이 토큰(제공사 기준 추정) 미만이면 붙이지 않는다. 기본 4096(Gemini 명시적 캐시 쓰기 최소 길이, E5 실측으로 1.75K는 효과 없음) */
+  /** breakpoint 앞부분이 이 토큰(제공사 기준 추정) 미만이면 붙이지 않는다. 기본 3500. 실측 문턱은 3,555~4,159토큰 사이(E7)이고, 문턱 미달 요청에 표시가 붙어도 일반 요금이라 손해가 없어 문턱 구간 아래로 잡았다(docs/CACHE.md) */
   cacheMinTokens?: number;
   /** estimateTokens(글자 수)를 제공사 토큰으로 환산하는 배율. 기본 ESTIMATE_TO_REAL */
   cacheEstimateScale?: number;
@@ -30,7 +30,7 @@ export type LorebookPosition = "afterFixed" | "beforeInput";
  * breakpoint 최소 길이 판정에만 쓴다. 모델·언어가 달라지면 cacheEstimateScale로 조정한다.
  */
 export const ESTIMATE_TO_REAL = 0.55;
-export const DEFAULT_CACHE_MIN_TOKENS = 4096;
+export const DEFAULT_CACHE_MIN_TOKENS = 3500;
 
 export type BlockTokens = {
   fixed: number;

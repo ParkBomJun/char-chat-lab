@@ -57,7 +57,7 @@ describe("loadConfig", () => {
 
 describe("캐시 옵션 설정", () => {
   it("기본값: breakpoint 켬(E6 실측 후 결정), 로어북은 고정 블록 뒤", () => {
-    expect(loadConfig({}).cache).toEqual({ breakpoint: true, minTokens: 4096, lorebookPosition: "afterFixed" });
+    expect(loadConfig({}).cache).toEqual({ breakpoint: true, minTokens: 3500, lorebookPosition: "afterFixed" });
   });
   it("환경변수로 켠다. 잘못된 값은 오류", () => {
     expect(loadConfig({ CACHE_BREAKPOINT: "0", LOREBOOK_POSITION: "beforeInput", CACHE_MIN_TOKENS: "5000" }).cache).toEqual({ breakpoint: false, minTokens: 5000, lorebookPosition: "beforeInput" });
