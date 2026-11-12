@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { kstDayStart, kstNextDayStart, remainingMessages } from "./kst";
+import { kstDayStart, kstListTime, kstNextDayStart, kstStamp, remainingMessages } from "./kst";
 
 describe("KST 날짜 경계", () => {
   it("KST 자정 직전/직후는 서로 다른 날", () => {
@@ -21,5 +21,24 @@ describe("KST 날짜 경계", () => {
     expect(remainingMessages(50, 10)).toBe(40);
     expect(remainingMessages(50, 50)).toBe(0);
     expect(remainingMessages(50, 80)).toBe(0);
+  });
+});
+
+describe("KST 시각 표기", () => {
+  const now = new Date("2026-11-12T12:00:00Z"); // KST 11-12 21:00
+  it("오늘은 '오늘 오후 8:49'", () => {
+    expect(kstListTime(new Date("2026-11-12T11:49:00Z"), now)).toBe("오늘 오후 8:49");
+    expect(kstListTime(new Date("2026-11-11T15:05:00Z"), now)).toBe("오늘 오전 12:05"); // KST 00:05
+  });
+  it("어제는 '어제 오후 9:01', UTC 날짜가 같아도 KST 기준으로 가른다", () => {
+    expect(kstListTime(new Date("2026-11-11T12:01:00Z"), now)).toBe("어제 오후 9:01");
+    expect(kstListTime(new Date("2026-11-11T14:59:00Z"), now)).toBe("어제 오후 11:59");
+  });
+  it("그 밖에는 날짜만", () => {
+    expect(kstListTime(new Date("2026-11-10T12:00:00Z"), now)).toBe("11월 10일");
+  });
+  it("표용 시각은 '11-12 20:48:42'", () => {
+    expect(kstStamp(new Date("2026-11-12T11:48:42Z"))).toBe("11-12 20:48:42");
+    expect(kstStamp(new Date("2026-01-01T15:00:05Z"))).toBe("01-02 00:00:05");
   });
 });

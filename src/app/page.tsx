@@ -4,28 +4,53 @@ import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { logoutAction } from "@/app/actions/auth";
 import { startConversationAction } from "@/app/actions/conversation";
+import { Avatar, Cover } from "@/components/CharacterArt";
+import { loadConfig } from "@/lib/config";
+import { countTodayMessages } from "@/lib/daily-limit";
+import { kstListTime, remainingMessages } from "@/lib/kst";
 
 export const dynamic = "force-dynamic";
+
+/** 목록 미리보기: 첫 줄만, 너무 길면 자른다(화면에서는 한 줄 말줄임) */
+const previewOf = (content: string | undefined) => (content ?? "").split("\n")[0].slice(0, 120);
 
 export default async function Home() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const characters = await prisma.character.findMany({
-    where: { isPublished: true },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, tagline: true },
-  });
-
-  const conversations = await prisma.conversation.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: { id: true, createdAt: true, character: { select: { name: true } } },
-  });
+  const [characters, conversations, used] = await Promise.all([
+    prisma.character.findMany({
+      where: { isPublished: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, tagline: true, greeting: true },
+    }),
+    prisma.conversation.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        createdAt: true,
+        character: { select: { name: true } },
+        // 미리보기용: 회수되지 않은 사용자·캐릭터 메시지 중 마지막 1건만(안내문 제외)
+        messages: {
+          where: { retracted: false, role: { in: ["USER", "ASSISTANT"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { content: true, createdAt: true },
+        },
+      },
+    }),
+    countTodayMessages(session.user.id),
+  ]);
+  const remaining = remainingMessages(loadConfig().dailyMessageLimit, used);
+  const now = new Date();
+  const list = conversations
+    .map((v) => ({ id: v.id, name: v.character.name, preview: previewOf(v.messages[0]?.content), at: v.messages[0]?.createdAt ?? v.createdAt }))
+    .sort((a, b) => b.at.getTime() - a.at.getTime());
 
   return (
-    <>
+    <div className="page">
       <header className="top">
         <div className="wrap">
           <Link href="/" className="brand">정원 도서관</Link>
@@ -36,40 +61,63 @@ export default async function Home() {
           </form>
         </div>
       </header>
-      <main className="page">
-        <h1>캐릭터</h1>
-        <p>AI 캐릭터와 대화해 보세요. 모든 대화는 AI가 생성합니다.</p>
-        {characters.length === 0 ? (
-          <p>공개된 캐릭터가 없습니다.</p>
-        ) : (
-          <div className="card-grid">
-            {characters.map((c) => (
-              <article key={c.id} className="char-card">
-                <h2>{c.name}</h2>
-                <p>{c.tagline}</p>
-                <form action={startConversationAction}>
+      <main className="wrap home">
+        <section className="col-main">
+          <h1 className="h1">캐릭터</h1>
+          {characters.length === 0 ? (
+            <p className="empty">공개된 캐릭터가 없습니다.</p>
+          ) : (
+            characters.map((c) => (
+              <article key={c.id} className="char">
+                <Cover name={c.name} />
+                <div className="char-head">
+                  <div className="char-name"><h2>{c.name}</h2></div>
+                  <p>{c.tagline}</p>
+                </div>
+                <div className="char-greet">
+                  <span>첫 인사</span>
+                  <p>{c.greeting}</p>
+                </div>
+                <form action={startConversationAction} className="char-act">
                   <input type="hidden" name="characterId" value={c.id} />
                   <button type="submit" className="btn">대화 시작</button>
+                  <span className="small">오늘 남은 메시지 {remaining}개</span>
                 </form>
               </article>
-            ))}
+            ))
+          )}
+          <p className="small">전 연령 서비스입니다. 모든 대화는 AI가 생성합니다.</p>
+        </section>
+        <section className="col-side">
+          <div className="side-head">
+            <h2 className="h2">내 대화</h2>
+            <span className="small">최근 순</span>
           </div>
-        )}
-        {conversations.length > 0 && (
-          <>
-            <h2>내 대화</h2>
-            <ul className="conv-list">
-              {conversations.map((v) => (
+          {list.length === 0 ? (
+            <p className="empty">
+              아직 대화가 없어요.{characters[0] ? ` ${characters[0].name}에게 먼저 말을 걸어 보세요.` : ""}
+            </p>
+          ) : (
+            <ul className="convs">
+              {list.map((v) => (
                 <li key={v.id}>
-                  <Link href={`/chat/${v.id}`}>{v.character.name}</Link>{" "}
-                  <span className="who">{v.createdAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</span>
+                  <Link href={`/chat/${v.id}`}>
+                    <Avatar name={v.name} />
+                    <span className="conv-txt"><b>{v.name}</b><span>{v.preview}</span></span>
+                    <span className="time">{kstListTime(v.at, now)}</span>
+                  </Link>
                 </li>
               ))}
             </ul>
-          </>
-        )}
-        <p className="who"><Link href="/privacy">데모 서비스 안내</Link></p>
+          )}
+        </section>
       </main>
-    </>
+      <footer className="foot">
+        <div className="wrap">
+          <span>포트폴리오 프로젝트 · char-chat-lab</span>
+          <Link href="/privacy">데모 서비스 안내</Link>
+        </div>
+      </footer>
+    </div>
   );
 }
