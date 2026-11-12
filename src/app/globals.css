@@ -1,20 +1,23 @@
 :root {
-  --bg: #f7f7f9;
-  --fg: #1c1c22;
-  --muted: #6b6b78;
-  --card: #fff;
-  --border: #e2e2ea;
-  --accent: #5b5bd6;
+  /* 따뜻한 미색 바탕 + 강조색 하나(차분한 녹색). 상태색(오류 빨강 등)은 강조색과 별개다. */
+  --bg: #f8f5ee;
+  --fg: #2b2a26;
+  --muted: #6d6a60;
+  --card: #fffdf8;
+  --border: #e3ded1;
+  --accent: #3f6f55;
+  --on-accent: #fff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #131318;
-    --fg: #ececf1;
-    --muted: #9a9aa8;
-    --card: #1c1c24;
-    --border: #2d2d38;
-    --accent: #8b8bff;
+    --bg: #171916;
+    --fg: #e9e6dc;
+    --muted: #a19d91;
+    --card: #20231f;
+    --border: #343830;
+    --accent: #8fc0a1;
+    --on-accent: #13201a;
   }
 }
 
@@ -74,7 +77,7 @@ a { color: var(--accent); }
 
 button {
   padding: 8px 14px; border: 0; border-radius: 8px;
-  background: var(--accent); color: #fff; font: inherit; cursor: pointer;
+  background: var(--accent); color: var(--on-accent); font: inherit; cursor: pointer;
 }
 button:disabled { opacity: 0.6; cursor: default; }
 button.link { background: none; color: var(--accent); padding: 0; }
@@ -85,7 +88,7 @@ button.link { background: none; color: var(--accent); padding: 0; }
 .bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--border); }
 .bubble p { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .bubble .who { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 2px; }
-.bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-color: transparent; }
+.bubble.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); border-color: transparent; }
 .bubble.system_notice { align-self: center; color: var(--muted); font-size: 0.9rem; }
 .chat-input { display: flex; gap: 8px; padding: 12px 24px 20px; }
 .chat-input textarea {
@@ -124,7 +127,7 @@ label.check { flex-direction: row !important; align-items: center; gap: 6px !imp
 .lore-card form + form { margin-top: 8px; }
 .ok { color: #2f9e5b; }
 .pager { display: flex; gap: 16px; }
-button.danger { background: #d6453d; }
+button.danger { background: #d6453d; color: #fff; }
 .price-set { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
 .price-set legend { font-size: 0.88rem; padding: 0 6px; }
 .price-grid { display: grid; grid-template-columns: 110px repeat(3, 1fr); gap: 8px; align-items: center; font-size: 0.88rem; }
