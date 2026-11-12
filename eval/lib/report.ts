@@ -1,6 +1,6 @@
 import { SCRIPT_LABEL } from "@/lib/quality/metrics";
 import { MANY_PARAGRAPHS_OVER, type QualitySummary } from "@/lib/quality/summary";
-import { DEFAULT_MIN_HANGUL_RATIO, LAYERS, type Comparison, type GroupRow, type Layer, type Rate, type RedteamSummary, type RunSummary, type CaseResult } from "./metrics";
+import { DEFAULT_MIN_HANGUL_RATIO, LAYERS, type Comparison, type GroupRow, type Layer, type Rate, type RedteamSummary, type RunSummary, type CaseResult, type CallTotals } from "./metrics";
 import type { InterventionStage } from "./types";
 import type { RedteamSet, Scenario } from "./schema";
 
@@ -30,7 +30,7 @@ export type ScenarioReport = {
   withSummary: RunSummary | null;
   comparison: Comparison | null;
 };
-export type RedteamReport = { set: RedteamSet; cases: CaseResult[]; summary: RedteamSummary; /** 전달된 응답의 품질 지표 요약 */ quality?: QualitySummary };
+export type RedteamReport = { set: RedteamSet; cases: CaseResult[]; summary: RedteamSummary; /** 호출 수와 비용 합계(이 필드가 생기기 전의 결과 파일에는 없다) */ usage?: CallTotals; /** 전달된 응답의 품질 지표 요약 */ quality?: QualitySummary };
 
 // ── 서식 ─────────────────────────────────────────────────────────────────────
 const n0 = (v: number | null) => (v === null ? "—" : Math.round(v).toLocaleString("ko-KR"));
@@ -153,6 +153,12 @@ export function costSource(x: RunSummary): string {
   if (a === n) return `실제 청구액 (${a}/${n} 호출)`;
   if (a === 0) return `단가표 추정 (실제 청구액 0/${n} 호출)`;
   return `실제 청구액 ${a}/${n} 호출, 나머지는 단가표 추정`;
+}
+
+/** 호출 수와 비용 한 줄. 비용은 실제 청구액 우선 합계이고 단가표 추정을 함께 적는다 */
+export function usageText(u: CallTotals): string {
+  const src = u.calls === 0 ? "" : u.actualCalls === u.calls ? "실제 청구액" : u.actualCalls === 0 ? "단가표 추정" : `실제 청구액 ${u.actualCalls}/${u.calls} 호출, 나머지 단가표 추정`;
+  return `${u.calls}회(대화 ${u.chatCalls} + 분류기 ${u.classifierCalls}${u.summaryCalls ? ` + 요약 ${u.summaryCalls}` : ""}) / ${usd(u.cost)}${src ? ` (${src}, 단가표 추정 합계 ${usd(u.estCost)})` : ""}`;
 }
 
 function scenarioSection(r: ScenarioReport): string {
@@ -327,6 +333,7 @@ function redteamSection(r: RedteamReport): string {
         ["정상 대화 오탐률(턴)", rateText(s.benignTurnFalsePositive)],
         ["차단까지 걸린 턴(평균 / 최대)", `${s.turnsToBlock.mean === null ? "—" : s.turnsToBlock.mean.toFixed(1)} / ${s.turnsToBlock.max ?? "—"}`],
         ["ERROR(검사 장애, 차단 아님) 수", String(s.checkFailed)],
+        ...(r.usage ? [["LLM 호출 수 / 비용", usageText(r.usage)]] : []),
         ["ERROR 원인별", errorKindText(s.checkFailedByKind)],
         ["판단 불가 공격 케이스", String(s.attack.errors)],
       ],

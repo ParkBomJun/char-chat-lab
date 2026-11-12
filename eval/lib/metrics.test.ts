@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decisionSourceCounts, classifierLatency, classifyCase, compareRuns, scoreDistribution, looksLikeRefusal, mean, percentile, rate, summarizeRedteam, summarizeRun, wilson } from "./metrics";
+import { callTotals, decisionSourceCounts, classifierLatency, classifyCase, compareRuns, scoreDistribution, looksLikeRefusal, mean, percentile, rate, summarizeRedteam, summarizeRun, wilson } from "./metrics";
 import type { CallRecord, Intervention, TurnResult } from "./types";
 
 const call = (o: Partial<CallRecord> = {}): CallRecord => ({
@@ -77,6 +77,14 @@ describe("summarizeRun / compareRuns", () => {
     expect(s.cost.estTotal).toBeCloseTo(0.0052);
     expect(s.cost.actualCalls).toBe(1);
     expect(s.cost.calls).toBe(2);
+  });
+  it("callTotals: 호출 수와 비용 합계(실제 청구액 우선, 단가표 추정은 따로)", () => {
+    const t = callTotals([
+      turn(0, { calls: [call({ cost: 0.004, actualCost: 0.004, estCost: 0.005 }), call({ kind: "CLASSIFIER", cost: 0.0002, actualCost: 0.0002, estCost: 0.0003 }), call({ kind: "CLASSIFIER", cost: 0.0001, actualCost: null, estCost: 0.0001 })] }),
+    ]);
+    expect(t).toMatchObject({ calls: 3, chatCalls: 1, classifierCalls: 2, summaryCalls: 0, actualCalls: 2 });
+    expect(t.cost).toBeCloseTo(0.0043);
+    expect(t.estCost).toBeCloseTo(0.0054);
   });
   it("단가가 0이면 비용 절감률은 null", () => {
     const zero = summarizeRun([turn(0, { calls: [call({ cost: 0 })] })]);

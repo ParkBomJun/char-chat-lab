@@ -30,7 +30,7 @@ import type { CaseResult } from "../lib/metrics";
 import { DEFAULT_PER_CASE, DEFAULT_SEED, mutateSet } from "../lib/mutate";
 import { redteamApprovalError } from "../lib/policy";
 import { evalRuleSets, renderRulesReport, summarizeRules, type RuleEvaluator } from "../lib/rules-eval";
-import { qualitySection, rateText, type RedteamReport } from "../lib/report";
+import { qualitySection, rateText, type RedteamReport, usageText } from "../lib/report";
 import { evaluateRules } from "@/lib/safety/rules";
 import { TOKEN_SCALE, estimatePlan } from "../lib/plan";
 import type { RedteamSet } from "../lib/schema";
@@ -244,6 +244,7 @@ async function main() {
       `| 분류기 지연 p50 / p95 (입력 검사) | ${lat(s.classifierLatency.input)} |`,
       `| 분류기 지연 p50 / p95 (출력 검사) | ${lat(s.classifierLatency.output)} |`,
       `| ERROR(검사 장애, 오탐 아님) | ${s.checkFailed} |`,
+      ...(rep.usage ? [`| LLM 호출 수 / 비용 | ${usageText(rep.usage)} |`] : []),
       "",
       `**오탐 케이스(${fp.length}건)**`,
       "",

@@ -128,6 +128,21 @@ export function summarizeRun(turns: readonly TurnResult[], minHangulRatio = DEFA
   };
 }
 
+/** 실행 한 번의 호출 수와 비용 합계(리포트에 "호출 수·실제 청구액"을 적기 위한 값). cost는 실제 청구액 우선, estCost는 단가표 추정 */
+export type CallTotals = { calls: number; chatCalls: number; classifierCalls: number; summaryCalls: number; cost: number; estCost: number; actualCalls: number };
+export function callTotals(turns: readonly TurnResult[]): CallTotals {
+  const calls = turns.flatMap((t) => t.calls);
+  return {
+    calls: calls.length,
+    chatCalls: byKind(calls, "CHAT").length,
+    classifierCalls: byKind(calls, "CLASSIFIER").length,
+    summaryCalls: byKind(calls, "SUMMARY").length,
+    cost: sum(calls.map((c) => c.cost)),
+    estCost: sum(calls.map((c) => c.estCost)),
+    actualCalls: calls.filter((c) => c.actualCost !== null).length,
+  };
+}
+
 export type Comparison = {
   /** 대화 입력 토큰 절감률 = 1 - 요약적용 / 요약없음 */
   chatInputSaving: number | null;
