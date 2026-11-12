@@ -4,6 +4,16 @@ import { validateKeywords } from "@/lib/lorebook/keywords";
 const req = (label: string, max: number) =>
   z.string().trim().min(1, `${label}을(를) 입력해 주세요.`).max(max, `${label}은(는) ${max}자 이하여야 합니다.`);
 
+/** 그림 경로 규칙: 사이트 내부의 /characters/ 아래 파일만. 외부 주소·상위 경로·쿼리는 받지 않는다. */
+export const CHARACTER_IMAGE_PATH = /^\/characters\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(?:webp|png|jpg|jpeg)$/;
+const imagePath = (label: string) =>
+  z
+    .string()
+    .trim()
+    .max(200, `${label}는 200자 이하여야 합니다.`)
+    .refine((v) => v === "" || CHARACTER_IMAGE_PATH.test(v), `${label}는 /characters/로 시작하는 사이트 내부 그림 경로(webp·png·jpg)만 쓸 수 있습니다.`)
+    .transform((v) => (v === "" ? null : v));
+
 export const characterSchema = z.object({
   name: req("이름", 40),
   tagline: req("한 줄 소개", 100),
@@ -11,6 +21,8 @@ export const characterSchema = z.object({
   speechStyle: req("말투", 2000),
   exampleDialog: req("예시 대화", 4000),
   greeting: req("첫 인사", 1000),
+  imageUrl: imagePath("표지 그림 경로"),
+  avatarUrl: imagePath("아바타 그림 경로"),
   isPublished: z.boolean(),
 });
 export type CharacterInput = z.infer<typeof characterSchema>;
@@ -27,6 +39,8 @@ export function parseCharacterForm(fd: FormData): Parsed<CharacterInput> {
     speechStyle: str(fd, "speechStyle"),
     exampleDialog: str(fd, "exampleDialog"),
     greeting: str(fd, "greeting"),
+    imageUrl: str(fd, "imageUrl"),
+    avatarUrl: str(fd, "avatarUrl"),
     isPublished: fd.get("isPublished") === "on",
   });
   return r.success ? { ok: true, data: r.data } : { ok: false, error: r.error.issues[0].message };

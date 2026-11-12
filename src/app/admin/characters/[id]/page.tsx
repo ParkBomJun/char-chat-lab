@@ -54,6 +54,8 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
           speechStyle: character.speechStyle,
           exampleDialog: character.exampleDialog,
           greeting: character.greeting,
+          imageUrl: character.imageUrl ?? "",
+          avatarUrl: character.avatarUrl ?? "",
           isPublished: character.isPublished,
         }}
       />

@@ -12,7 +12,10 @@ export type SaveResult =
   | { ok: false; reason: "blocked"; error: string; blocked: CardFinding[] }
   | { ok: false; reason: "not_found" };
 
-export async function saveCharacterChecked(db: Db, id: string | null, data: CharacterInput): Promise<SaveResult> {
+/** 그림 경로는 생략할 수 있다(생략하면 기존 값을 그대로 둔다). 경로 규칙 검증은 parseCharacterForm에서 한다. */
+export type CharacterSaveInput = Omit<CharacterInput, "imageUrl" | "avatarUrl"> & Partial<Pick<CharacterInput, "imageUrl" | "avatarUrl">>;
+
+export async function saveCharacterChecked(db: Db, id: string | null, data: CharacterSaveInput): Promise<SaveResult> {
   const check = checkCardFields({ persona: data.persona, speechStyle: data.speechStyle, exampleDialog: data.exampleDialog, greeting: data.greeting });
   if (check.blocked.length) return { ok: false, reason: "blocked", error: blockedMessage(check.blocked), blocked: check.blocked };
   if (id) {

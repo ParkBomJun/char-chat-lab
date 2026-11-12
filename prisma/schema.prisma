@@ -72,6 +72,8 @@ model Character {
   speechStyle   String // 말투 규칙
   exampleDialog String // 예시 대화
   greeting      String // 첫 인사
+  imageUrl      String? // 표지 그림 경로(/characters/…). 없으면 글자 표지
+  avatarUrl     String? // 아바타 그림 경로(/characters/…). 없으면 표지 윗부분 또는 이름 첫 글자
   isPublished   Boolean         @default(true)
   lorebook      LorebookEntry[]
   conversations Conversation[]

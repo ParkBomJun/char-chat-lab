@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { Avatar } from "@/components/CharacterArt";
 import { ChatView } from "@/components/ChatView";
+import { resolveArt } from "@/lib/character-art";
 import { loadConfig } from "@/lib/config";
 import { countTodayMessages } from "@/lib/daily-limit";
 import { remainingMessages } from "@/lib/kst";
@@ -20,7 +21,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
     select: {
       status: true,
       characterId: true,
-      character: { select: { name: true } },
+      character: { select: { name: true, imageUrl: true, avatarUrl: true } },
       messages: {
         where: { retracted: false },
         orderBy: { createdAt: "asc" },
@@ -33,6 +34,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
   const remaining = remainingMessages(loadConfig().dailyMessageLimit, await countTodayMessages(session.user.id));
 
   const name = conv.character.name;
+  const art = resolveArt(conv.character);
   return (
     <div className="chat">
       <header className="top chat-top">
@@ -42,7 +44,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
             <span>목록</span>
           </Link>
           <div className="chat-who">
-            <Avatar name={name} />
+            <Avatar name={name} art={art} />
             <div className="chat-who-txt">
               <b>{name}</b>
               <span className="ai-note m">AI와의 대화입니다</span>
@@ -51,7 +53,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
           <span className="ai-note">AI와의 대화입니다</span>
         </div>
       </header>
-      <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} />
+      <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} characterArt={art} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} />
     </div>
   );
 }

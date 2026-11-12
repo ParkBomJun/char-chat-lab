@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { startConversationAction } from "@/app/actions/conversation";
 import { Avatar } from "@/components/CharacterArt";
+import type { CharacterArt } from "@/lib/character-art";
 import { splitActions, splitHotlines, subjectParticle } from "@/lib/chat/display";
 import { NOTICE } from "@/lib/safety/messages";
 import { SseParser } from "@/lib/sse";
@@ -18,6 +19,7 @@ export function ChatView({
   conversationId,
   characterId,
   characterName,
+  characterArt,
   initialMessages,
   initialStopped,
   initialRemaining,
@@ -25,6 +27,7 @@ export function ChatView({
   conversationId: string;
   characterId: string;
   characterName: string;
+  characterArt: CharacterArt;
   initialMessages: ViewMessage[];
   initialStopped: boolean;
   initialRemaining: number;
@@ -163,7 +166,7 @@ export function ChatView({
       >
         <div className="msgs" aria-live="polite">
           {messages.map((m) => (
-            <MessageRow key={m.id} m={m} characterName={characterName} />
+            <MessageRow key={m.id} m={m} characterName={characterName} art={characterArt} />
           ))}
           {stopped && (
             <div className="card stop" role="status">
@@ -226,7 +229,7 @@ export function ChatView({
 
 class LimitReached extends Error {}
 
-function MessageRow({ m, characterName }: { m: ViewMessage; characterName: string }) {
+function MessageRow({ m, characterName, art }: { m: ViewMessage; characterName: string; art: CharacterArt }) {
   if (m.role === "USER") {
     return (
       <div className="row me">
@@ -237,7 +240,7 @@ function MessageRow({ m, characterName }: { m: ViewMessage; characterName: strin
   if (m.role === "ASSISTANT") {
     return (
       <div className="row">
-        <Avatar name={characterName} />
+        <Avatar name={characterName} art={art} />
         {m.content === "" ? (
           <div className="bub typing" role="status" aria-label={`${characterName}${subjectParticle(characterName)} 답하는 중`}>
             <i /><i /><i />

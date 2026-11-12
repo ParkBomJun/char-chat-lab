@@ -59,6 +59,8 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.9
   flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--yellow); color: var(--ink);
   display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; overflow: hidden;
 }
+.av img { width: 100%; height: 100%; object-fit: cover; }
+.av img.from-cover { object-position: 50% 12%; }
 .h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
 .small { margin: 0; font-size: 13px; color: var(--muted); }
@@ -90,6 +92,8 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.9
   border: 1px solid var(--line); border-radius: 16px; padding: 20px;
 }
 .cover { grid-area: cover; height: 244px; border-radius: 12px; background: var(--yellow); padding: 16px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.cover.img { height: 262px; padding: 0; }
+.cover.img img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
 .cover b { font-size: 46px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
 .char-head { grid-area: head; display: flex; flex-direction: column; gap: 10px; }
 .char-name { display: flex; align-items: baseline; gap: 10px; }
@@ -113,6 +117,7 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.9
   .home { gap: 28px; padding-top: 20px; padding-bottom: 32px; }
   .char { grid-template-columns: 92px minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "cover head" "greet greet" "act act"; gap: 12px 14px; padding: 14px; border-radius: 14px; }
   .cover { height: 112px; padding: 10px; border-radius: 10px; }
+  .cover.img { height: 123px; }
   .cover b { font-size: 26px; }
   .char-head { gap: 4px; }
   .char-name { flex-direction: column; gap: 0; }

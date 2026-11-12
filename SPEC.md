@@ -136,6 +136,8 @@ model Character {
   speechStyle   String   // 말투 규칙
   exampleDialog String   // 예시 대화
   greeting      String   // 첫 인사
+  imageUrl      String?  // 표지 그림 경로(/characters/…), 없으면 글자 표지
+  avatarUrl     String?  // 아바타 그림 경로(/characters/…)
   isPublished   Boolean  @default(true)
   lorebook      LorebookEntry[]
   conversations Conversation[]
@@ -251,6 +253,7 @@ model ModerationEvent {
 > - (추가) 표시 위치 기본값 변경과 로어북 상시 포함(2026-11-12): `CACHE_BREAKPOINT_POSITION` 기본값을 `fixedBlock`으로 바꿨다(`beforeInput`은 비용 우선 옵션). 활성 로어북 전체의 추정 토큰이 `LOREBOOK_INLINE_MAX_TOKENS`(기본 1000) 이하면 키워드와 무관하게 고정 블록 끝의 "참고 설정"으로 항상 넣고, 넘으면 3-4의 키워드 방식을 쓴다. 방식 결정은 `src/lib/lorebook/plan.ts`(`planLorebook`, 서비스 라우트와 평가 엔진 공용), 고정 블록 렌더는 `renderFixedBlock(card, inlineLore)`. 상시 포함일 때 고정 블록이 턴마다 바이트 단위로 같다는 것을 테스트로 고정했다. 관리자가 로어북을 고치면 고정 블록이 바뀌어 캐시가 한 번 새로 만들어진다. 근거는 `docs/CACHE.md` 0절.
 > - (추가) 캐시 표시 위치 옵션: `CACHE_BREAKPOINT_POSITION` = `beforeInput`(기본, 이번 입력 직전 메시지) | `fixedBlock`(고정 블록 끝에 고정) | `stepped`(이력이 `CACHE_STEP_TOKENS`만큼 늘 때만 옮김, 상태 없이 메시지 목록만으로 위치 결정). 조립기 옵션 `cacheBreakpointPosition`. 기본 동작은 그대로이며 테스트로 고정했다. 세 방식(표시 없음 포함) 비교 실측은 `docs/CACHE.md`, 기본값 변경 여부는 미정.
 > - (추가) 캐시 쓰기 토큰 기록: `UsageLog.cacheWriteTokens Int?`(마이그레이션 `20261112050000_usage_cache_write_tokens`). 제공사 usage의 `cache_write_tokens`를 저장한다. 실측상 캐시를 만드는 요청은 읽기+쓰기, 재사용하는 요청은 읽기만 청구되므로, `/admin`은 대화 호출을 "생성(쓰기 발생) / 재사용(읽기만) / 캐시 없음 / 구분 불가(기록 전 행)"로 나눠 건수와 비율을 보여 준다. 기존 "캐시 적중률"은 "캐시 토큰 비중"으로 이름을 바꿨다. cache-probe에 E8(이어지는 대화)·E9(유지 시간) 추가.
+> - (추가) 캐릭터 그림: `Character.imageUrl`·`avatarUrl`(마이그레이션 `20261112130000_character_images`). 값은 `/characters/`로 시작하는 사이트 내부 경로(webp·png·jpg)만 저장 시 허용한다(외부 주소·상위 경로·쿼리 거부, `CHARACTER_IMAGE_PATH`). 파일은 `public/characters/<이름>/cover.webp`, `avatar.webp`. 업로드 기능은 없고 관리자 화면에서 경로 문자열만 입력한다. 화면은 `resolveArt()`가 public/ 아래에 파일이 실제로 있을 때만 그림을 쓰고, 없으면 노란 글자 표지·이름 첫 글자 아바타로 보인다(아바타가 없으면 표지 윗부분). 두 경로는 일반 사용자 응답에 나가는 공개 필드다.
 > - (추가) 카드 저장 시 안전 검사: 관리자 화면의 캐릭터·로어북 저장과 seed가 persona·speechStyle·exampleDialog·greeting·로어북 본문에 규칙 층을 적용한다(모델 호출 없음). HARD면 저장 거부, SOFT면 경고 후 저장. 카드 전용 규칙은 `src/config/card-rules.json`, 구현 `src/lib/safety/card-check.ts`, `src/lib/admin/card-save.ts`. 통합 테스트 `npm run test:card`.
 > - (추가) 명시적 캐시 기본 켬: `CACHE_BREAKPOINT` 기본 1(이번 입력 직전의 마지막 안정 메시지에 cache_control, 앞부분 환산 3500토큰 미만이면 생략(`CACHE_MIN_TOKENS`, 실측 문턱 3,555~4,159 아래로 잡음), 주소가 openrouter.ai일 때만 전송), 로어북 위치 `LOREBOOK_POSITION` 기본 afterFixed. 도구: `npm run tokens:calib`(실제 prompt_tokens와 조립기 추정 비교, 호출 없음), `npm run cache:latency -- --real`(끔/켬 지연·비용 비교).
 > - (추가) 규칙 층 두 단계(HARD/SOFT): `safety-rules.json`의 각 항목에 `tier`를 둔다. **HARD**는 바로 차단·위기 안내(명백한 본인 위기 표현, 명시적 요구만), **SOFT**는 차단하지 않고 `ModerationEvent`에 `verdict=ALLOW`, `action=soft_hint`로 기록한 뒤 분류기 프롬프트에 `규칙 힌트: <범주>`를 붙인다(위기어 힌트는 `self_harm`). 원문에서 안 걸린 글은 깊은 정규화(공백·특수문자 제거, 자모 결합, 숫자·영문 치환 복원, 3번 이상 반복 글자 접기) 후 모든 규칙에 다시 맞추고, **정규화로만 걸린 것은 HARD 항목이어도 항상 SOFT**(`action=soft_hint_normalized`). SOFT는 흐름 감시 점수·위반 횟수에 영향을 주지 않는다(턴 점수는 분류기 점수로만 정해짐, 테스트로 고정). 출력의 SOFT는 스트리밍을 끊지 않고 출력 분류기에 힌트로 넘기며 스트리밍 중 검사는 HARD만 본다. 분류기 시스템 프롬프트에 "규칙 힌트는 참고 신호일 뿐 판정이 아니다"를 추가. 초성 표기는 규칙에 넣지 않고 분류기가 맡는다. 분류표·근거·전후 측정은 `docs/SAFETY.md`. 스키마 변경 없음(`action`은 문자열).
@@ -266,12 +269,21 @@ model ModerationEvent {
 
 ## 5. 화면
 
-- `/` 캐릭터 목록 (카드형)
+화면에 보이는 서비스 이름은 "정원 도서관"이다(저장소·패키지·문서의 프로젝트 이름은 그대로).
+
+- `/` 캐릭터 카드(표지, 소개, 첫 인사, 대화 시작, 오늘 남은 메시지)와 내 대화 목록(마지막 메시지 첫 줄 미리보기, 시각은 오늘/어제/날짜)
 - `/chat/[conversationId]` 대화 화면 (스트리밍, 상단에 "AI와의 대화입니다" 상시 표시, 남은 일일 사용량 표시)
-- `/login`, `/signup`
-- `/admin` (ADMIN만): 사용량·비용·캐시(생성/재사용 건수, 캐시 토큰 비중) 요약, 안전 판정 로그(필터: 단계/판정/카테고리), 캐릭터·로어북 편집
+  - 응답 대기 표시(점 세 개), 응답 중 입력 잠금과 중지 버튼, 자동 스크롤은 맨 아래 80px 안에 있을 때만
+  - 상태별 표시: 입력 차단·출력 회수는 흐린 글 한 줄, 위기 안내는 파란 카드와 109·112·119 전화 버튼, 대화 중단은 회색 카드와 "새 대화 시작", 오류는 입력창 위 빨간 상자, 한도 도달은 회색 상자, 남은 5개 이하는 주황 글. 안내 문구는 `src/lib/safety/messages.ts` 그대로다
+  - 괄호 안 행동 묘사는 흐린 색으로 표시만 한다(저장된 글은 그대로)
+- `/login`, `/signup` 2단(소개 면 + 폼)
+- `/admin` (ADMIN만): 사용량·비용·캐시(생성/재사용 건수, 캐시 토큰 비중) 요약, 안전 판정 로그(필터: 단계/판정/카테고리), 캐릭터·로어북 편집, LLM 설정
 
 디자인은 깔끔하고 단순하게. 화면 완성도보다 파이프라인 완성도가 우선이다.
+
+- 색 토큰은 `src/app/globals.css`의 `:root`에 있고 색마다 역할이 하나다(녹색은 주요 버튼·내 말풍선·링크). 어두운 화면은 지원하지 않는다(`color-scheme: light`).
+- 글꼴은 Pretendard(`pretendard` 패키지, SIL OFL)의 가변 글꼴 dynamic subset을 직접 제공한다(외부 CDN 요청 없음).
+- 좁은 화면 기준은 640px. 관리자 표는 표만 가로로 스크롤된다.
 
 ---
 

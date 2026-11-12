@@ -11,6 +11,8 @@ export type CharacterValues = {
   speechStyle: string;
   exampleDialog: string;
   greeting: string;
+  imageUrl: string;
+  avatarUrl: string;
   isPublished: boolean;
 };
 
@@ -38,6 +40,12 @@ export function CharacterForm({ initial }: { initial: CharacterValues }) {
           ) : (
             <input name={f.name} defaultValue={v(f.name)} maxLength={f.max} required />
           )}
+        </label>
+      ))}
+      {(["imageUrl", "avatarUrl"] as const).map((k) => (
+        <label key={k}>
+          <span>{k === "imageUrl" ? "표지 그림 경로" : "아바타 그림 경로"} <span className="who">(선택. /characters/로 시작하는 사이트 내부 경로만. 비우면 글자 {k === "imageUrl" ? "표지" : "아바타"})</span></span>
+          <input name={k} defaultValue={v(k)} maxLength={200} placeholder={k === "imageUrl" ? "/characters/haru/cover.webp" : "/characters/haru/avatar.webp"} />
         </label>
       ))}
       <label className="check">

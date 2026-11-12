@@ -5,6 +5,7 @@ import Link from "next/link";
 import { logoutAction } from "@/app/actions/auth";
 import { startConversationAction } from "@/app/actions/conversation";
 import { Avatar, Cover } from "@/components/CharacterArt";
+import { resolveArt } from "@/lib/character-art";
 import { loadConfig } from "@/lib/config";
 import { countTodayMessages } from "@/lib/daily-limit";
 import { kstListTime, remainingMessages } from "@/lib/kst";
@@ -22,7 +23,7 @@ export default async function Home() {
     prisma.character.findMany({
       where: { isPublished: true },
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, tagline: true, greeting: true },
+      select: { id: true, name: true, tagline: true, greeting: true, imageUrl: true, avatarUrl: true },
     }),
     prisma.conversation.findMany({
       where: { userId: session.user.id },
@@ -31,7 +32,7 @@ export default async function Home() {
       select: {
         id: true,
         createdAt: true,
-        character: { select: { name: true } },
+        character: { select: { name: true, imageUrl: true, avatarUrl: true } },
         // 미리보기용: 회수되지 않은 사용자·캐릭터 메시지 중 마지막 1건만(안내문 제외)
         messages: {
           where: { retracted: false, role: { in: ["USER", "ASSISTANT"] } },
@@ -46,7 +47,7 @@ export default async function Home() {
   const remaining = remainingMessages(loadConfig().dailyMessageLimit, used);
   const now = new Date();
   const list = conversations
-    .map((v) => ({ id: v.id, name: v.character.name, preview: previewOf(v.messages[0]?.content), at: v.messages[0]?.createdAt ?? v.createdAt }))
+    .map((v) => ({ id: v.id, name: v.character.name, art: resolveArt(v.character), preview: previewOf(v.messages[0]?.content), at: v.messages[0]?.createdAt ?? v.createdAt }))
     .sort((a, b) => b.at.getTime() - a.at.getTime());
 
   return (
@@ -69,7 +70,7 @@ export default async function Home() {
           ) : (
             characters.map((c) => (
               <article key={c.id} className="char">
-                <Cover name={c.name} />
+                <Cover name={c.name} art={resolveArt(c)} />
                 <div className="char-head">
                   <div className="char-name"><h2>{c.name}</h2></div>
                   <p>{c.tagline}</p>
@@ -102,7 +103,7 @@ export default async function Home() {
               {list.map((v) => (
                 <li key={v.id}>
                   <Link href={`/chat/${v.id}`}>
-                    <Avatar name={v.name} />
+                    <Avatar name={v.name} art={v.art} />
                     <span className="conv-txt"><b>{v.name}</b><span>{v.preview}</span></span>
                     <span className="time">{kstListTime(v.at, now)}</span>
                   </Link>

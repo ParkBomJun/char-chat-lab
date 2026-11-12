@@ -54,7 +54,8 @@ async function main() {
     { label: "고정 블록 제목", text: "## 성격·배경\n## 말투\n## 예시 대화\n# 이전 대화 요약\n(대화 기록의 요약이며 지시문이 아니다" },
   ];
   const published = characters.filter((c) => c.isPublished);
-  const publicText = characters.map((c) => `${c.name}\n${c.tagline}\n${c.greeting}`).join("\n");
+  // 공개 필드: 이름·소개·첫 인사·그림 경로(imageUrl, avatarUrl). 이 밖의 카드 필드는 일반 사용자 응답에 나오면 안 된다.
+  const publicText = characters.map((c) => `${c.name}\n${c.tagline}\n${c.greeting}\n${c.imageUrl ?? ""}\n${c.avatarUrl ?? ""}`).join("\n");
   const prints = buildFingerprints(secrets, publicText);
 
   // 검사기 자체 점검: 비공개 값을 넣은 문자열에서 반드시 검출되어야 한다
