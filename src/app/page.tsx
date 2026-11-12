@@ -8,6 +8,7 @@ import { Avatar, Cover } from "@/components/CharacterArt";
 import { resolveArt } from "@/lib/character-art";
 import { loadConfig } from "@/lib/config";
 import { countTodayMessages } from "@/lib/daily-limit";
+import { HOME_LIST_TAKE, homeConversationWhere } from "@/lib/home-list";
 import { kstListTime, remainingMessages } from "@/lib/kst";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +27,9 @@ export default async function Home() {
       select: { id: true, name: true, tagline: true, greeting: true, imageUrl: true, avatarUrl: true },
     }),
     prisma.conversation.findMany({
-      where: { userId: session.user.id },
+      where: homeConversationWhere(session.user.id),
       orderBy: { createdAt: "desc" },
-      take: 10,
+      take: HOME_LIST_TAKE,
       select: {
         id: true,
         createdAt: true,
