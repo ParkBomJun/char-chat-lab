@@ -77,10 +77,10 @@ cp .env.example .env.production
 
 - [ ] `npm run predeploy -- --env-file …` 오류 0건
 - [ ] 데모·관리자 비밀번호가 개발용 값이 아님, 서로 다름
-- [ ] 실제 `LLM_API_KEY`·모델·`pricing.json` 단가 입력, 제공사 월 사용 한도 설정
+- [ ] 실제 `LLM_API_KEY`·모델 입력(서비스 전용 키), `pricing.json`에 모델 단가가 있는지 확인, 제공사 월 사용 한도 설정
 - [ ] 앞단 프록시가 TLS 종료 + `X-Forwarded-For` 부착, `TRUST_PROXY_HOPS` 맞춤
 - [ ] `/api/health` 응답, 데모 계정으로 로그인·대화·차단 동작 확인
-- [ ] `eval/redteam/`에 직접 작성한 세트로 `npm run eval -- --yes` 실행, 결과를 README에 반영
+- [ ] 평가 결과를 README에 반영: 정상 케이스는 `npm run redteam:all -- --private <표> --benign-only --real --yes`, 공격 케이스는 `--rules-only`(모델 호출 없음)로만. 공격 케이스는 실제 모델로 보내지 않는다(제공사 약관상 사전 승인 필요)
 - [ ] `/privacy`에 연락처 표시(`CONTACT_EMAIL`)
 
 ## 알려진 한계 (운영 관점)
