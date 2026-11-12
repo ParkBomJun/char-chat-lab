@@ -36,7 +36,8 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
 
       <p className="who">
         고정 블록(안전 지시+캐릭터 카드) 추정 {fixedTokens.toLocaleString("ko-KR")}토큰(글자 수 기준). 이 내용을 수정하면 진행 중인 대화의 캐시 접두사가 한 번 바뀌고,
-        OpenAI 계열 자동 캐시는 접두사가 약 1024토큰 이상일 때만 적용됩니다.
+        캐시가 동작하는 최소 길이는 제공사·모델마다 다릅니다. 실측한 경로(OpenRouter 경유 Gemini, 2026-11-12)에서는 자동 캐시가 걸리지 않고, 캐시 표시를 붙인 앞부분이
+        실제 토큰으로 3,555~4,159 사이를 넘어야 동작했습니다(이 화면의 글자 수 추정으로는 대략 6,000~7,000 이상).
       </p>
       <CharacterForm
         initial={{

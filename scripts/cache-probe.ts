@@ -17,7 +17,7 @@ import { comparePrefix, fillerCharsForTokens, firstDiffSnippet, makeFiller, pars
 
 const { values: args, positionals } = parseArgs({
   allowPositionals: true,
-  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" }, only: { type: "string" }, "chars-per-token": { type: "string", default: "4" }, "e7-targets": { type: "string", default: "2500,3200,3600,4200" } },
+  options: { real: { type: "boolean", default: false }, "session-id": { type: "string" }, gap: { type: "string", default: "3" }, only: { type: "string" }, "chars-per-token": { type: "string", default: "4" }, "e7-targets": { type: "string", default: "2500,3200,3600,4200" }, "e9-wait": { type: "string", default: "360" } },
 });
 const cmd = positionals[0] ?? "dump";
 
@@ -99,7 +99,7 @@ function dump() {
 }
 
 // ── 실제 호출 실험 ───────────────────────────────────────────────────────────
-type Probe = { label: string; promptTokens: number | null; completion: number | null; cached: number | null; cacheWrite?: number | null; cost?: number | null; rawUsage: unknown; id: string | null; ms: number; note?: string };
+type Probe = { label: string; ttftMs?: number | null; promptTokens: number | null; completion: number | null; cached: number | null; cacheWrite?: number | null; cost?: number | null; rawUsage: unknown; id: string | null; ms: number; note?: string };
 
 async function callOnce(label: string, base: string, key: string, body: Record<string, unknown>, stream: boolean, extraHeaders: Record<string, string> = {}): Promise<Probe> {
   const t0 = Date.now();
@@ -112,6 +112,7 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
   if (!res.ok) throw new Error(`${label}: HTTP ${res.status} ${(await res.text()).slice(0, 160).replace(key, "***")}`);
   let usage: Record<string, unknown> | null = null;
   let id: string | null = null;
+  let ttftMs: number | null = null; // 첫 본문(또는 추론) 글자까지. 스트리밍일 때만
   if (stream) {
     const parser = new SseParser();
     const dec = new TextDecoder();
@@ -121,6 +122,8 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
         try {
           const j = JSON.parse(f.data);
           id ??= j.id ?? null;
+          const d = j.choices?.[0]?.delta;
+          if (ttftMs === null && d && (d.content || d.reasoning)) ttftMs = Date.now() - t0;
           if (j.usage) usage = j.usage; // 마지막 usage 청크(원문)
         } catch {
           /* 무시 */
@@ -143,22 +146,26 @@ async function callOnce(label: string, base: string, key: string, body: Record<s
     rawUsage: usage,
     id,
     ms: Date.now() - t0,
+    ttftMs,
   };
 }
 
 async function probe() {
+  const e9WaitSec = Math.min(3600, Math.max(1, Number(args["e9-wait"]) || 360));
   if (!args.real) {
     console.log("실제 호출 실험입니다(비용 발생). 의도했다면 --real 을 붙여 다시 실행하세요:  npm run cache:probe -- --real");
-    console.log("호출 계획(전부 실행 시 21회, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
+    console.log("호출 계획(--only 없이 실행하면 E1~E8 25회. E9는 대기가 길어 --only E9로 지정했을 때만 실행, 각 요청 max_tokens=64라 출력 비용은 거의 없음. --only 로 일부만 실행 가능):");
     console.log("  E1  스트리밍 동일 요청 2회 + 비스트리밍 동일 요청 2회   (입력 약 1.9K토큰 × 4)");
     console.log("  E2  session_id 동일 요청 2회                          (약 1.9K × 2)");
     console.log("  E3  접두사가 이어지는 후속 1회                         (약 2K × 1)");
     console.log("  E4  길이 테스트: 고정 블록 + 중립 더미 텍스트, 약 4,500토큰 ×2회, 약 9,000토큰 ×2회 (session_id 포함)  → 입력 약 4.5K×2 + 9K×2");
     console.log("  E5  명시적 캐시: 고정 블록 메시지에 cache_control ephemeral, 동일 요청 2회 (session_id 포함, 약 1.9K×2)");
     console.log("  E5b 같은 방식인데 4,500토큰 규모(문서상 Gemini 명시적 캐시 쓰기 최소 길이가 4096토큰이라 E5만으로는 판단이 어려움) 2회");
-    console.log("  E6  앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 각각 '처음' 1회씩(cache_control 포함, 2회) → 첫 요청부터 cached>0인지로 방식 판정");
+    console.log("  E6  앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 각각 '처음' 1회씩(cache_control 포함, 2회) → 서로 다른 앞부분이 각각 캐시를 만드는지(cached = cacheWr) 확인. 재사용은 E8/E9에서 본다");
     console.log(`  E7  문턱 찾기: cache_control을 붙인 요청을 약 ${parseTargets(args["e7-targets"]!).join(", ")}토큰으로 1회씩(영문 더미 + 실행별 표식, 크기는 근사치라 표의 prompt 열 기준) → 처음 cached>0이 되는 크기가 문턱`);
-    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회) · --only E6 (2회) · --only E7 (4회)");
+    console.log("  E8  이어지는 대화: 하루 고정 블록(실제 약 4.4K토큰) + 실행별 표식으로 시작해, 이전 요청 전체 + 새 턴(가짜 응답 1개와 새 사용자 입력 1개)을 붙인 요청 4개를 순서대로(cache_control은 서비스처럼 새 입력 직전 메시지에) → 턴마다 cacheWr가 어떻게 붙는지");
+    console.log(`  E9  유지 시간(TTL): 같은 요청을 ${Math.round(e9WaitSec / 60)}분(${e9WaitSec}초) 간격으로 2회 → 둘째 요청이 읽기만 내는지(유지) 쓰기를 다시 내는지(만료). 실행에 약 ${Math.ceil(e9WaitSec / 60) + 1}분 걸린다. --only E9 로만 실행`);
+    console.log("  예) npm run cache:probe -- --real --only E4,E5     (E4+E5+E5b만: 8회) · --only E6 (2회) · --only E7 (4회) · --only E8 (4회) · --only E9 (2회, 대기 포함)");
     return;
   }
   if (process.env.APP_ENV === "test" && process.env.ALLOW_REAL_LLM !== "1") throw new Error("APP_ENV=test에서는 ALLOW_REAL_LLM=1 없이 실제 호출을 하지 않습니다.");
@@ -193,7 +200,7 @@ async function probe() {
     await sleep(gap);
   };
 
-  const only = new Set((args.only ?? "E1,E2,E3,E4,E5,E6,E7").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
+  const only = new Set((args.only ?? "E1,E2,E3,E4,E5,E6,E7,E8").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean));
   const want = (k: string) => only.has(k);
   const sid = args["session-id"] ?? `cache-probe-${Date.now()}`;
 
@@ -247,7 +254,8 @@ async function probe() {
   }
 
   // E6: 앞부분 내용이 서로 다른 약 5K토큰 요청 2개를 '각각 처음' 보낸다(cache_control 포함). 맨 앞에 실행마다 다른 표식을 넣어 이전 실행의 캐시와도 겹치지 않게 한다.
-  // 둘 다 첫 요청부터 cached>0이면 "매 요청 할인" 방식, 0이면 "재사용" 방식(두 번째 이후에만 cached)이다.
+  // 주의(2026-11-12 정정): 첫 요청의 cached = cacheWr는 "캐시를 만든 요청"이라는 뜻이다(읽기+쓰기 청구). 이 실험은 매번 다른 앞부분을 보내므로
+  // 재사용(읽기만)은 관측되지 않는다. 재사용은 실제 대화와 E8/E9에서 본다.
   if (want("E6")) {
     const stamp = Date.now();
     const variants = [{ tag: "alpha", offset: 0 }, { tag: "bravo", offset: 5000 }];
@@ -261,7 +269,7 @@ async function probe() {
 
   // E7: 명시적 캐시가 동작하기 시작하는 길이(문턱) 찾기. 1.75K 실패·5.8K 동작 사이를 메운다.
   // 카드 v3 이후 서비스 조립 결과(A)가 이미 3K토큰 안팎이라 작은 크기를 만들 수 없으므로, 영문 더미만으로 system 메시지를 만든다.
-  // "매 요청 할인" 방식(E6)이라 크기마다 1회면 된다. 맨 앞 표식이 실행·크기마다 달라 이전 요청의 캐시와 겹치지 않는다.
+  // 문턱을 넘으면 캐시를 만드는 첫 요청부터 cached = cacheWr > 0이 보이므로 크기마다 1회면 된다. 맨 앞 표식이 실행·크기마다 달라 이전 요청의 캐시와 겹치지 않는다.
   const e7Rows: { target: number; label: string }[] = [];
   if (want("E7")) {
     const stamp = Date.now();
@@ -272,6 +280,45 @@ async function probe() {
       e7Rows.push({ target, label });
       await run(label, m as ChatMessage[], true, { session_id: `${sid}-e7-${target}-${stamp}` });
     }
+  }
+
+  // 서비스와 같은 방식: 지정한 메시지 하나를 content part 배열로 바꿔 cache_control을 붙인다(Gemini는 마지막 breakpoint만 쓴다).
+  const withBreakpointAt = (msgs: ChatMessage[], idx: number): unknown[] =>
+    msgs.map((m, i) => (i === idx ? { role: m.role, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] } : m));
+  const fixedBlock = renderFixedBlock(haru.character);
+  const greeting: ChatMessage = { role: "assistant", content: haru.character.greeting };
+
+  // E8: 같은 대화가 이어지는 상황. 요청 k = 이전 요청 전체 + (가짜 응답 1개 + 새 사용자 입력 1개). 로어북은 넣지 않는다(걸린 항목이 바뀌면 앞부분이 달라지므로).
+  // 맨 앞 표식으로 이 실행만의 앞부분을 만들어, 서비스 대화나 이전 실행이 만든 캐시와 겹치지 않고 "생성"부터 시작하게 한다.
+  const e8Rows: string[] = [];
+  if (want("E8")) {
+    const stamp = Date.now();
+    const sys: ChatMessage = { role: "system", content: `# 실행 표식 e8-${stamp}\n${fixedBlock}` };
+    const convo: ChatMessage[] = [sys, greeting];
+    for (let k = 0; k < 4; k++) {
+      if (k > 0) convo.push({ role: "assistant", content: replies[k - 1] });
+      convo.push({ role: "user", content: userLines[k] });
+      const label = `E8 이어지는 대화 ${k + 1}턴째`;
+      e8Rows.push(label);
+      // 표시는 새 사용자 입력 바로 앞 메시지(첫 턴은 인사말, 이후는 직전 가짜 응답)에 붙인다
+      await run(label, withBreakpointAt([...convo], convo.length - 2) as ChatMessage[], true, { session_id: `${sid}-e8-${stamp}` });
+    }
+  }
+
+  // E9: 유지 시간(TTL). 같은 요청을 간격을 두고 2회. 문서상 5분이므로 기본 6분 뒤에는 만료돼 쓰기가 다시 붙을 것으로 예상한다.
+  const e9Rows: string[] = [];
+  if (want("E9")) {
+    const stamp = Date.now();
+    const m = withBreakpointAt([{ role: "system", content: `# 실행 표식 e9-${stamp}\n${fixedBlock}` }, greeting, { role: "user", content: userLines[0] }], 1) as ChatMessage[];
+    const extra = { session_id: `${sid}-e9-${stamp}` };
+    e9Rows.push("E9 유지 시간 첫번째", `E9 유지 시간 두번째(${e9WaitSec}초 뒤)`);
+    await run(e9Rows[0], m, true, extra);
+    console.log(`E9: 첫 요청을 보냈습니다. ${e9WaitSec}초(약 ${Math.round(e9WaitSec / 60)}분) 기다린 뒤 같은 요청을 한 번 더 보냅니다. 끝날 때까지 창을 닫지 마세요.`);
+    for (let left = e9WaitSec - Math.round(gap / 1000); left > 0; left -= 60) {
+      await sleep(Math.min(60, left) * 1000);
+      if (left > 60) console.log(`  … 남은 대기 약 ${Math.ceil((left - 60) / 60)}분`);
+    }
+    await run(e9Rows[1], m, true, extra);
   }
 
   console.log("실험                                    prompt  cached  cacheWr  cost($)      completion   ms   id");
@@ -285,13 +332,29 @@ async function probe() {
       console.log(`| ${e.target} | ${r.promptTokens ?? "-"} | ${r.cached ?? "-"} | ${r.cacheWrite ?? "-"} | ${r.cost ?? "-"} | ${r.ms} |${r.note ? ` ⚠ ${r.note}` : ""}`);
     }
   }
+  const turnTable = (title: string, labels: string[]) => {
+    console.log(`\n── ${title} ──`);
+    console.log("| 요청 | prompt | 늘어난 입력 | cached | cacheWr | cost($) | ttft(ms) | ms |");
+    console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
+    let prev: number | null = null;
+    for (const l of labels) {
+      const r = results.find((x) => x.label === l)!;
+      const grew = prev !== null && r.promptTokens !== null ? String(r.promptTokens - prev) : "-";
+      console.log(`| ${l} | ${r.promptTokens ?? "-"} | ${grew} | ${r.cached ?? "-"} | ${r.cacheWrite ?? "-"} | ${r.cost ?? "-"} | ${r.ttftMs ?? "-"} | ${r.ms} |${r.note ? ` ⚠ ${r.note}` : ""}`);
+      if (r.promptTokens !== null) prev = r.promptTokens;
+    }
+  };
+  if (e8Rows.length) turnTable("E8 이어지는 대화(prompt는 제공사가 센 실제 토큰)", e8Rows);
+  if (e9Rows.length) turnTable(`E9 유지 시간(간격 ${e9WaitSec}초)`, e9Rows);
   console.log("\n── usage 원문(마지막 청크/응답) ──");
   for (const r of results) console.log(`${r.label}: ${JSON.stringify(r.rawUsage)}`);
   console.log("\n해석 가이드: E1-2의 cached가 0보다 크면 이 모델은 캐시를 지원하고 우리 쪽 보고도 정상. E1-2가 0이고 E2-2(session_id)만 크면 라우팅 문제(session_id 필요).");
   console.log("E1/E2 모두 0이고 E1n(비스트리밍)만 크면 스트리밍 usage에 cached가 빠지는 것. 모두 0이면 모델 최소 길이 미달 또는 해당 모델/엔드포인트가 암시적 캐시 미지원.");
   console.log("E4: 4,500토큰급 두번째에서 cached가 생기고 1.9K급(E1/E2)에서만 0이면 최소 길이 문제. 9,000토큰급에서만 생기면 최소 길이가 더 크다. 전부 0이면 길이 때문이 아니다.");
-  console.log("E6 판정: alpha·bravo 둘 다 첫 요청에서 cached>0 → '매 요청 할인' 방식(cached는 재사용이 아니라 이번 요청에서 쓴 만큼을 센 값일 수 있음, cacheWr·cost와 대조). 둘 다 0 → '재사용' 방식(같은 접두사를 다시 보낼 때만 cached). 한쪽만 >0이면 원문 usage와 id로 확인.");
+  console.log("E6: alpha·bravo 둘 다 첫 요청에서 cached = cacheWr > 0이면 '캐시를 만든 요청'이다(그 토큰에 읽기+쓰기 단가). 앞부분이 매번 달라 재사용은 이 실험에서 볼 수 없다. 2026-11-12 실제 대화에서 같은 앞부분의 둘째 요청은 cached > 0, cacheWr = 0(읽기만)이었다.");
   console.log("E5/E5b: 두번째 요청에서 cached>0 이거나 첫번째에서 cacheWr>0 이면 명시적 캐시가 동작. 에러(HTTP 4xx)나 둘 다 0이면 이 모델/경로에서 cache_control이 무시되거나 최소 길이 미달(note/원문 usage 확인). cost 열은 제공사가 청구한 실제 금액이라 캐시 쓰기/읽기 단가 확인에도 쓴다.");
+  console.log("E8 이어지는 대화: 1턴째는 생성(cached = cacheWr ≈ 앞부분 전체)일 것이다. 2턴째부터 cacheWr를 본다 — (가) cacheWr가 매번 앞부분 전체만큼 다시 붙으면 턴마다 읽기+쓰기를 전부 다시 내는 것, (나) '늘어난 입력' 정도만 붙으면 늘어난 부분만 새로 쓰는 것, (다) 0이면 이전 캐시를 읽기만 하고 새로 쓰지 않는 것(이 경우 cached가 이전 턴의 표시 위치까지만 잡히는지도 본다). cost를 검산식(비캐시×0.75 + cached×0.075 + cacheWr×0.041667 + 출력×3.75)과 맞춰 본다.");
+  console.log("E9 유지 시간: 둘째 요청이 cached > 0, cacheWr = 0이면 그 간격에도 캐시가 유지된 것, cacheWr > 0이면 만료돼 다시 만든 것(문서상 5분). cached = 0이면 캐시가 전혀 쓰이지 않은 것이므로 usage 원문을 확인한다.");
   console.log("E7 문턱: 크기순으로 처음 cached>0이 되는 요청의 prompt 값이 문턱의 상한, 바로 아래 크기(cached=0)의 prompt 값이 하한이다(처음 cached>0이 되는 크기가 문턱). 전부 0이면 문턱은 가장 큰 크기보다 위(5.8K 이하), 전부 >0이면 가장 작은 크기보다 아래다. 간격을 좁히려면 --e7-targets 로 다시 잰다. 실패(⚠)한 행은 판정에서 뺀다.");
 }
 

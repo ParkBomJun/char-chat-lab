@@ -162,6 +162,7 @@ model UsageLog {
   model             String
   inputTokens       Int
   cachedInputTokens Int       @default(0)
+  cacheWriteTokens  Int? // 캐시 쓰기 토큰(제공사 usage). >0이면 이 요청이 캐시를 만들었다(읽기+쓰기 청구), 0이면 쓰기 없음. NULL은 컬럼 추가 전 행이거나 usage 없음
   outputTokens      Int
   usageEstimated    Boolean   @default(false) // true면 제공사 usage가 없어 글자 수로 추정한 값
   estCost           Decimal // 단가표 기반 추정(비교용)

@@ -32,6 +32,8 @@ export type UsageRowData = {
   model: string;
   inputTokens: number;
   cachedInputTokens: number;
+  /** 캐시 쓰기 토큰. 제공사 usage가 없으면 null(알 수 없음), 있으면 보고된 값(없으면 0) */
+  cacheWriteTokens: number | null;
   outputTokens: number;
   usageEstimated: boolean;
   /** Prisma Decimal에 문자열로 넘긴다(부동소수 오차 방지) */
@@ -54,6 +56,7 @@ export function buildUsageRow(i: UsageRowInput, table: PricingTable = pricing): 
     model: i.model,
     inputTokens: usage.inputTokens,
     cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteTokens: i.usage === null ? null : (i.usage.cacheWriteTokens ?? 0),
     outputTokens: usage.outputTokens,
     usageEstimated: i.usage === null,
     estCost: cost.toFixed(8),

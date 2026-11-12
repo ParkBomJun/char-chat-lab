@@ -2,9 +2,25 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { kstDayStart } from "@/lib/kst";
 
-/** 캐시 적중률 = 캐시된 입력 토큰 / 전체 입력 토큰. 입력이 없으면 null. */
+/**
+ * 캐시 토큰 비중 = 캐시된 입력 토큰 / 전체 입력 토큰. 입력이 없으면 null.
+ * 캐시를 만드는 요청도 cached 토큰이 잡히므로(읽기+쓰기 청구) 이 값만으로는 "재사용"을 뜻하지 않는다. 재사용 여부는 cacheKind로 본다.
+ */
 export function cacheHitRate(cached: number, input: number): number | null {
   return input > 0 ? cached / input : null;
+}
+
+/**
+ * 대화 호출 한 건의 캐시 상태(제공사 usage 기준, docs/CACHE.md).
+ *  created: 캐시를 만든 요청(쓰기 토큰 > 0, 읽기+쓰기 청구) / reused: 이미 있는 캐시를 읽기만 한 요청(cached > 0, 쓰기 0)
+ *  none: 캐시 토큰 없음 / unknown: cached > 0인데 쓰기 토큰이 기록되지 않은 행(컬럼 추가 전) — 생성인지 재사용인지 알 수 없다
+ * getDashboard의 SQL FILTER와 같은 규칙이다(바꿀 때 같이 고친다).
+ */
+export type CacheKind = "created" | "reused" | "none" | "unknown";
+export function cacheKind(cachedInputTokens: number, cacheWriteTokens: number | null): CacheKind {
+  if (cacheWriteTokens !== null && cacheWriteTokens > 0) return "created";
+  if (cachedInputTokens <= 0) return "none";
+  return cacheWriteTokens === null ? "unknown" : "reused";
 }
 
 export const fmtPct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -72,6 +88,15 @@ export async function getDashboard(days: number, now: Date = new Date()) {
            percentile_cont(0.95) WITHIN GROUP (ORDER BY "totalMs")::float AS p95_total
     FROM "UsageLog" WHERE kind = 'CHAT' AND "createdAt" >= ${since}`);
 
+  // 대화 호출의 캐시 상태: 생성(쓰기 발생) / 재사용(읽기만) / 없음 / 구분 불가(쓰기 토큰 미기록). 규칙은 cacheKind와 같다.
+  const cacheKinds = await prisma.$queryRaw<{ created: number; reused: number; none: number; unknown: number }[]>(Prisma.sql`
+    SELECT (count(*) FILTER (WHERE "cacheWriteTokens" > 0))::int AS created,
+           (count(*) FILTER (WHERE "cachedInputTokens" > 0 AND "cacheWriteTokens" = 0))::int AS reused,
+           (count(*) FILTER (WHERE "cachedInputTokens" <= 0 AND coalesce("cacheWriteTokens", 0) <= 0))::int AS none,
+           (count(*) FILTER (WHERE "cachedInputTokens" > 0 AND "cacheWriteTokens" IS NULL))::int AS unknown
+    FROM "UsageLog" WHERE kind = 'CHAT' AND NOT "usageEstimated" AND "createdAt" >= ${since}`);
+  const ck = cacheKinds[0] ?? { created: 0, reused: 0, none: 0, unknown: 0 };
+
   // createdAt은 UTC로 저장된 timestamp(타임존 없음) → UTC로 해석한 뒤 KST로 변환해 날짜를 자른다
   const daily = await prisma.$queryRaw<{ day: string; chats: number; cost: number; input: number; cached: number }[]>(Prisma.sql`
     SELECT to_char((("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS day,
@@ -118,7 +143,22 @@ export async function getDashboard(days: number, now: Date = new Date()) {
     actualCalls,
     totalCalls,
     rows,
-    cache: { rate: cacheHitRate(exactCached, exactInput), input: exactInput, cached: exactCached, exactRows: exactChat._count._all, estimatedRows },
+    cache: {
+      /** 캐시 토큰 비중(재사용 비율이 아니다) */
+      rate: cacheHitRate(exactCached, exactInput),
+      input: exactInput,
+      cached: exactCached,
+      exactRows: exactChat._count._all,
+      estimatedRows,
+      /** 대화 호출 건수: 캐시 생성 / 재사용 / 캐시 없음 / 구분 불가 */
+      created: ck.created,
+      reused: ck.reused,
+      none: ck.none,
+      unknown: ck.unknown,
+      /** 재사용 비율 = 재사용 ÷ (생성 + 재사용 + 없음). 구분 불가 행은 뺀다 */
+      reuseRate: ck.created + ck.reused + ck.none > 0 ? ck.reused / (ck.created + ck.reused + ck.none) : null,
+      createRate: ck.created + ck.reused + ck.none > 0 ? ck.created / (ck.created + ck.reused + ck.none) : null,
+    },
     latency: {
       n: l?.n ?? 0,
       avgTtft: l?.avg_ttft ?? null,

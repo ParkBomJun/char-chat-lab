@@ -50,9 +50,14 @@ export default async function AdminHome(props: PageProps<"/admin">) {
           }
         />
         <Stat
-          label="캐시 적중률(대화)"
+          label="캐시 재사용(읽기만) · 대화"
+          value={`${fmtInt(d.cache.reused)}건 · ${fmtPct(d.cache.reuseRate)}`}
+          sub={`생성(쓰기 발생) ${fmtInt(d.cache.created)}건 · ${fmtPct(d.cache.createRate)} / 캐시 없음 ${fmtInt(d.cache.none)}건${d.cache.unknown ? ` / 구분 불가 ${fmtInt(d.cache.unknown)}건(쓰기 토큰 기록 전)` : ""}`}
+        />
+        <Stat
+          label="캐시 토큰 비중(대화)"
           value={fmtPct(d.cache.rate)}
-          sub={`제공사 usage 기준 ${d.cache.exactRows}건 · 추정 행 ${d.cache.estimatedRows}건 제외`}
+          sub={`입력 토큰 중 캐시 토큰. 생성 요청도 포함되므로 재사용 비율이 아님 · usage 기준 ${d.cache.exactRows}건, 추정 행 ${d.cache.estimatedRows}건 제외`}
         />
         <Stat label="첫 토큰 p50 / p95" value={`${fmtMs(d.latency.p50Ttft)} / ${fmtMs(d.latency.p95Ttft)}`} sub={`대화 ${d.latency.n}건`} />
         <Stat label="전체 응답 평균 / p95" value={`${fmtMs(d.latency.avgTotal)} / ${fmtMs(d.latency.p95Total)}`} />
@@ -80,10 +85,11 @@ export default async function AdminHome(props: PageProps<"/admin">) {
         </tbody>
       </table>
       <p className="period">비용은 제공사가 알려준 실제 청구액(usage.cost)이 있는 호출은 그 값을, 없으면 단가표 추정값을 씁니다. * = 일부 호출만 실제 청구액이 기록됨.</p>
+      <p className="period">캐시: &quot;생성&quot;은 캐시를 처음 만든 요청(그 토큰에 읽기+쓰기 단가), &quot;재사용&quot;은 유지 시간 안에 같은 앞부분이 다시 와서 읽기 단가만 낸 요청입니다. 비율의 분모는 생성+재사용+캐시 없음입니다.</p>
 
       <h2>일별 (KST)</h2>
       <table className="admin-table">
-        <thead><tr><th>날짜</th><th>대화 호출</th><th>비용</th><th>캐시 적중률</th></tr></thead>
+        <thead><tr><th>날짜</th><th>대화 호출</th><th>비용</th><th>캐시 토큰 비중</th></tr></thead>
         <tbody>
           {d.daily.length === 0 && <tr><td colSpan={4}>기록이 없습니다.</td></tr>}
           {d.daily.map((r) => (

@@ -108,7 +108,7 @@
 
 ### 3-6. 비용과 사용량
 
-- 매 턴 `UsageLog` 기록: 모델, 입력 토큰, 캐시된 입력 토큰, 출력 토큰, 추정 비용(단가표 기반, 비교용)과 실제 청구액(제공사 `usage.cost`가 있을 때만), 지연 시간(첫 토큰까지 / 전체), 분류기 호출 비용 포함.
+- 매 턴 `UsageLog` 기록: 모델, 입력 토큰, 캐시된 입력 토큰, 캐시 쓰기 토큰, 출력 토큰, 추정 비용(단가표 기반, 비교용)과 실제 청구액(제공사 `usage.cost`가 있을 때만), 지연 시간(첫 토큰까지 / 전체), 분류기 호출 비용 포함.
 - 모델 단가는 설정 파일에 두고 코드에 박지 않는다(단가는 사용자가 직접 확인해서 입력).
 - 사용자별 하루 메시지 수 제한 `DAILY_MESSAGE_LIMIT`(기본 50). 초과 시 안내.
 
@@ -192,6 +192,7 @@ model UsageLog {
   model            String
   inputTokens      Int
   cachedInputTokens Int     @default(0)
+  cacheWriteTokens Int?    // 캐시 쓰기 토큰. >0이면 캐시 생성 요청, cached>0인데 0이면 재사용. NULL은 기록 전 행
   outputTokens     Int
   estCost          Decimal  // 단가표 기반 추정(비교용)
   actualCost       Decimal? // 제공사 usage.cost(실제 청구액). 있으면 /admin 비용 표시에서 우선
@@ -246,6 +247,7 @@ model ModerationEvent {
 > - (추가) OpenRouter 호환: 주소 `https://openrouter.ai/api/v1`(채팅은 `/chat/completions`), 모델은 `제공사/모델` 형식. 스트림 도중 HTTP 200 위의 최상위 `error` 청크를 오류로 처리(삼키면 빈/잘린 응답이 됨). 구조화 출력은 모델·endpoint 단위로 지원이 달라 미지원이면 요청이 실패하므로 OpenRouter 프리셋은 기본 off. 설정 화면에 OpenAI/OpenRouter 프리셋과 잘못된 OpenRouter 주소 힌트.
 > - (추가) 추론 모델 대응: 대부분의 제공자에서 출력 토큰 한도(max_tokens)가 추론+본문을 합쳐 적용되어, 한도가 작으면 `finish_reason=length`와 빈 본문이 온다. 설정에 `reasoningEffort`(""=보내지 않음 | none | minimal | low | medium | high, 모든 요청에 `reasoning:{effort}`로 전송 — OpenRouter 규약)와 `maxOutputTokens`(0=MAX_OUTPUT_TOKENS)를 추가. 어댑터는 추론 내용을 사용자에게 보내지 않고 글자 수와 finish_reason만 `done.meta`로 돌려 빈 응답 원인을 설명(`explainEmptyResponse`). 연결 테스트는 실제 대화와 같은 한도·추론 강도로 시험한다(이전에는 32토큰 고정이라 추론 모델이 항상 실패).
 > - (추가) 실제 청구액: `UsageLog.actualCost Decimal?`(마이그레이션 `20261111060000_usage_actual_cost`). OpenRouter가 주는 `usage.cost`를 그대로 저장하고, `estCost`(단가표 추정)는 비교용으로 유지. `/admin` 비용 표시는 행 단위로 `coalesce(actualCost, estCost)`를 우선 사용(기존 행은 actualCost=NULL이라 추정값). `pricing.json`에 선택 항목 `cacheWritePer1M`(캐시 쓰기 단가, 없으면 0)을 두고 추정에 반영한다. 2026-11-11 실측(OpenRouter+Gemini, `docs/CACHE.md`): `cache_control`을 쓰면 첫 요청부터 cached = cache_write이고 같은 토큰에 읽기+쓰기 단가가 모두 청구되므로 추정식도 그렇게 계산한다. 관리자 LLM 설정 화면에는 아직 이 항목 입력란이 없다.
+> - (추가) 캐시 쓰기 토큰 기록: `UsageLog.cacheWriteTokens Int?`(마이그레이션 `20261112050000_usage_cache_write_tokens`). 제공사 usage의 `cache_write_tokens`를 저장한다. 실측상 캐시를 만드는 요청은 읽기+쓰기, 재사용하는 요청은 읽기만 청구되므로, `/admin`은 대화 호출을 "생성(쓰기 발생) / 재사용(읽기만) / 캐시 없음 / 구분 불가(기록 전 행)"로 나눠 건수와 비율을 보여 준다. 기존 "캐시 적중률"은 "캐시 토큰 비중"으로 이름을 바꿨다. cache-probe에 E8(이어지는 대화)·E9(유지 시간) 추가.
 > - (추가) 카드 저장 시 안전 검사: 관리자 화면의 캐릭터·로어북 저장과 seed가 persona·speechStyle·exampleDialog·greeting·로어북 본문에 규칙 층을 적용한다(모델 호출 없음). HARD면 저장 거부, SOFT면 경고 후 저장. 카드 전용 규칙은 `src/config/card-rules.json`, 구현 `src/lib/safety/card-check.ts`, `src/lib/admin/card-save.ts`. 통합 테스트 `npm run test:card`.
 > - (추가) 명시적 캐시 기본 켬: `CACHE_BREAKPOINT` 기본 1(이번 입력 직전의 마지막 안정 메시지에 cache_control, 앞부분 환산 3500토큰 미만이면 생략(`CACHE_MIN_TOKENS`, 실측 문턱 3,555~4,159 아래로 잡음), 주소가 openrouter.ai일 때만 전송), 로어북 위치 `LOREBOOK_POSITION` 기본 afterFixed. 도구: `npm run tokens:calib`(실제 prompt_tokens와 조립기 추정 비교, 호출 없음), `npm run cache:latency -- --real`(끔/켬 지연·비용 비교).
 > - (추가) 규칙 층 두 단계(HARD/SOFT): `safety-rules.json`의 각 항목에 `tier`를 둔다. **HARD**는 바로 차단·위기 안내(명백한 본인 위기 표현, 명시적 요구만), **SOFT**는 차단하지 않고 `ModerationEvent`에 `verdict=ALLOW`, `action=soft_hint`로 기록한 뒤 분류기 프롬프트에 `규칙 힌트: <범주>`를 붙인다(위기어 힌트는 `self_harm`). 원문에서 안 걸린 글은 깊은 정규화(공백·특수문자 제거, 자모 결합, 숫자·영문 치환 복원, 3번 이상 반복 글자 접기) 후 모든 규칙에 다시 맞추고, **정규화로만 걸린 것은 HARD 항목이어도 항상 SOFT**(`action=soft_hint_normalized`). SOFT는 흐름 감시 점수·위반 횟수에 영향을 주지 않는다(턴 점수는 분류기 점수로만 정해짐, 테스트로 고정). 출력의 SOFT는 스트리밍을 끊지 않고 출력 분류기에 힌트로 넘기며 스트리밍 중 검사는 HARD만 본다. 분류기 시스템 프롬프트에 "규칙 힌트는 참고 신호일 뿐 판정이 아니다"를 추가. 초성 표기는 규칙에 넣지 않고 분류기가 맡는다. 분류표·근거·전후 측정은 `docs/SAFETY.md`. 스키마 변경 없음(`action`은 문자열).
@@ -264,7 +266,7 @@ model ModerationEvent {
 - `/` 캐릭터 목록 (카드형)
 - `/chat/[conversationId]` 대화 화면 (스트리밍, 상단에 "AI와의 대화입니다" 상시 표시, 남은 일일 사용량 표시)
 - `/login`, `/signup`
-- `/admin` (ADMIN만): 사용량·비용·캐시 적중률 요약, 안전 판정 로그(필터: 단계/판정/카테고리), 캐릭터·로어북 편집
+- `/admin` (ADMIN만): 사용량·비용·캐시(생성/재사용 건수, 캐시 토큰 비중) 요약, 안전 판정 로그(필터: 단계/판정/카테고리), 캐릭터·로어북 편집
 
 디자인은 깔끔하고 단순하게. 화면 완성도보다 파이프라인 완성도가 우선이다.
 
@@ -281,7 +283,7 @@ model ModerationEvent {
 | 4 | 기억 요약(3-3) | 긴 대화에서 요약이 생성·갱신되고 프롬프트에 들어간다 |
 | 5 | 로어북(3-4) | 키워드가 나오면 해당 항목이 들어간다(테스트) |
 | 6 | 안전 파이프라인(3-5) | 입력 차단, 출력 회수, 흐름 감시, fail closed, 위기 안내가 테스트로 확인된다 |
-| 7 | 일일 사용량 제한 + 관리자 화면 | `/admin`에서 비용·캐시 적중률·판정 로그를 본다 |
+| 7 | 일일 사용량 제한 + 관리자 화면 | `/admin`에서 비용·캐시 현황·판정 로그를 본다 |
 | 8 | 평가 스크립트 (아래 7장) | 결과가 표로 출력·저장된다 |
 | 9 | 배포 (대상은 그때 결정) + README | 공개 URL과 데모 계정으로 접속된다 |
 

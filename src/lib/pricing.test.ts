@@ -14,7 +14,7 @@ describe("estimateCost", () => {
     expect(r.cost).toBeCloseTo(0.0094, 10);
     expect(r.priced).toBe(true);
   });
-  it("캐시 토큰에는 읽기+쓰기 단가가 모두 청구된다(실측 검산식)", () => {
+  it("캐시를 만드는 요청은 그 토큰에 읽기+쓰기 단가가 모두 청구된다(실측 검산식)", () => {
     // 2026-11-11 실측 단가(USD/1M): 입력 0.75, 읽기 0.075, 쓰기 0.041667, 출력 3.75. cached = cacheWr = 6297, 총 입력 7000, 출력 100
     const t: PricingTable = { default: table.default, models: { g: { inputPer1M: 0.75, cachedInputPer1M: 0.075, cacheWritePer1M: 0.041667, outputPer1M: 3.75 } } };
     const r = estimateCost("g", { inputTokens: 7000, cachedInputTokens: 6297, cacheWriteTokens: 6297, outputTokens: 100 }, t);
@@ -27,6 +27,19 @@ describe("estimateCost", () => {
     expect(estimateCost(m, { inputTokens: 5799, cachedInputTokens: 0, outputTokens: 0 }, pricing).cost).toBeCloseTo(0.00434925, 8);
     // E5b: 같은 길이, cached = cacheWr = 5647 → 입력 $0.00077282
     expect(estimateCost(m, { inputTokens: 5799, cachedInputTokens: 5647, cacheWriteTokens: 5647, outputTokens: 0 }, pricing).cost).toBeCloseTo(0.00077282, 8);
+  });
+  it("★ 실제 대화의 두 요청이 실제 청구액과 일치한다: 캐시 생성(읽기+쓰기)과 재사용(읽기만) (2026-11-12 실측)", () => {
+    const m = "google/gemini-3.8-flash";
+    // 생성: 입력 4,498 중 4,497이 cached = cache_write, 출력 74 → 1×0.75 + 4497×(0.075+0.041667) + 74×3.75
+    const created = estimateCost(m, { inputTokens: 4498, cachedInputTokens: 4497, cacheWriteTokens: 4497, outputTokens: 74 }, pricing).cost;
+    expect(created).toBeCloseTo(0.0008029, 7);
+    // 재사용: 입력 4,501 중 4,497이 cached, 쓰기 0, 출력 86 → 4×0.75 + 4497×0.075 + 86×3.75
+    const reused = estimateCost(m, { inputTokens: 4501, cachedInputTokens: 4497, cacheWriteTokens: 0, outputTokens: 86 }, pricing).cost;
+    expect(reused).toBeCloseTo(0.00066277, 7);
+    // 쓰기 토큰이 보고되지 않은 경우(undefined)도 재사용과 같다
+    expect(estimateCost(m, { inputTokens: 4501, cachedInputTokens: 4497, outputTokens: 86 }, pricing).cost).toBeCloseTo(reused, 12);
+    // 비교: 카드 확장 전, 캐시 없는 3,255토큰 요청(출력 126) = 0.00291375
+    expect(estimateCost(m, { inputTokens: 3255, cachedInputTokens: 0, outputTokens: 126 }, pricing).cost).toBeCloseTo(0.00291375, 8);
   });
   it("쓰기 단가가 없으면 쓰기 항목은 0(기존 계산과 동일)", () => {
     expect(estimateCost("m", { inputTokens: 1000, cachedInputTokens: 400, cacheWriteTokens: 400, outputTokens: 100 }, table).cost).toBeCloseTo(0.0094, 10);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cacheHitRate, fmtCost, fmtMs, fmtPct, periodStart } from "./stats";
+import { cacheHitRate, cacheKind, fmtCost, fmtMs, fmtPct, periodStart } from "./stats";
 
 describe("관리자 통계 헬퍼", () => {
   it("캐시 적중률: 입력이 없으면 null(0%가 아님)", () => {
@@ -7,6 +7,13 @@ describe("관리자 통계 헬퍼", () => {
     expect(cacheHitRate(40, 100)).toBe(0.4);
     expect(fmtPct(cacheHitRate(1, 3))).toBe("33.3%");
     expect(fmtPct(null)).toBe("—");
+  });
+  it("캐시 상태: 쓰기 토큰이 있으면 생성, cached만 있으면 재사용, 쓰기 토큰 기록이 없으면 구분 불가", () => {
+    expect(cacheKind(4497, 4497)).toBe("created"); // 2026-11-12 실측 첫 요청
+    expect(cacheKind(4497, 0)).toBe("reused"); // 같은 앞부분의 둘째 요청
+    expect(cacheKind(0, 0)).toBe("none");
+    expect(cacheKind(0, null)).toBe("none");
+    expect(cacheKind(4497, null)).toBe("unknown"); // 컬럼 추가 전 행
   });
   it("비용·지연 표기", () => {
     expect(fmtCost(0)).toBe("$0");
