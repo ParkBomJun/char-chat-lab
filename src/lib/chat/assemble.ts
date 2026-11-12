@@ -20,9 +20,13 @@ export type AssembleConfig = {
   /**
    * 표시 위치. 기본 "beforeInput": 이번 입력 직전의 마지막 안정 메시지(턴마다 뒤로 옮겨 간다 → 매 턴 앞부분 전체가 캐시 생성 요금).
    * "fixedBlock": 고정 블록(첫 system 메시지) 끝에 고정(턴이 바뀌어도 같은 위치 → 고정 블록은 재사용, 그 뒤 이력은 일반 요금).
+   * "stepped": 대화 이력이 cacheStepTokens만큼 늘 때마다만 표시를 뒤로 옮긴다(그 사이 턴들은 같은 위치 → 재사용, 표시 뒤의 이력만 일반 요금).
+   *   캐시를 만드는 요청은 첫 토큰이 늦으므로(실측 약 +3.3초) 생성 횟수를 줄이려는 방식이다. 로어북은 beforeInput에 두어야 앞부분이 유지된다.
    * 비교 실측은 docs/CACHE.md.
    */
   cacheBreakpointPosition?: CacheBreakpointPosition;
+  /** stepped에서 표시를 옮기는 간격(제공사 토큰 환산). 기본 DEFAULT_CACHE_STEP_TOKENS */
+  cacheStepTokens?: number;
   /** breakpoint 앞부분이 이 토큰(제공사 기준 추정) 미만이면 붙이지 않는다. 기본 3500. 실측 문턱은 3,555~4,159토큰 사이(E7)이고, 문턱 미달 요청에 표시가 붙어도 일반 요금이라 손해가 없어 문턱 구간 아래로 잡았다(docs/CACHE.md) */
   cacheMinTokens?: number;
   /** estimateTokens(글자 수)를 제공사 토큰으로 환산하는 배율. 기본 ESTIMATE_TO_REAL */
@@ -30,7 +34,8 @@ export type AssembleConfig = {
 };
 
 export type LorebookPosition = "afterFixed" | "beforeInput";
-export type CacheBreakpointPosition = "beforeInput" | "fixedBlock";
+export type CacheBreakpointPosition = "beforeInput" | "fixedBlock" | "stepped";
+export const DEFAULT_CACHE_STEP_TOKENS = 1500;
 
 /**
  * estimateTokens는 글자당 1토큰으로 보수적으로 잡아 실제보다 크다. 실측(첫 턴 고정 블록: 약 1.3K토큰 vs 추정 2,356)으로 약 0.55배.
@@ -166,6 +171,7 @@ export function assemblePrompt(
     recentTokens += cost;
   }
 
+  const historyStart = messages.length; // 최근 대화가 시작되는 인덱스(그 앞은 고정 블록·요약·afterFixed 로어북)
   for (const m of kept) {
     messages.push({ role: m.role === "USER" ? "user" : "assistant", content: m.content });
   }
@@ -177,10 +183,24 @@ export function assemblePrompt(
   let cacheBreakpointIndex: number | null = null;
   let cachePrefixTokens: number | null = null;
   if (config.cacheBreakpoint) {
+    const scale = config.cacheEstimateScale ?? ESTIMATE_TO_REAL;
     // fixedBlock이면 표시는 항상 첫 메시지(고정 블록)이고, 최소 길이도 고정 블록만으로 판정한다
-    const at = config.cacheBreakpointPosition === "fixedBlock" ? 0 : stableEnd;
+    let at = config.cacheBreakpointPosition === "fixedBlock" ? 0 : stableEnd;
+    if (config.cacheBreakpointPosition === "stepped") {
+      // 이력의 누적 토큰이 step의 배수를 넘는 지점에만 표시를 둔다. 이력이 다음 배수를 넘기 전까지는 같은 메시지에 머문다.
+      // 상태를 저장하지 않고 메시지 목록만으로 정하므로, 이력의 시작점이 같으면 턴이 바뀌어도 같은 위치가 나온다.
+      const step = Math.max(1, config.cacheStepTokens ?? DEFAULT_CACHE_STEP_TOKENS);
+      const cum: number[] = [];
+      let acc = 0;
+      for (let i = historyStart; i <= stableEnd; i++) {
+        acc += estimateTokens(messages[i].content) * scale;
+        cum.push(acc);
+      }
+      const target = Math.floor(acc / step) * step;
+      at = target <= 0 ? Math.max(0, historyStart - 1) : historyStart + cum.findIndex((c) => c >= target);
+    }
     const raw = messages.slice(0, at + 1).reduce((n, m) => n + estimateTokens(m.content), 0);
-    cachePrefixTokens = Math.round(raw * (config.cacheEstimateScale ?? ESTIMATE_TO_REAL));
+    cachePrefixTokens = Math.round(raw * scale);
     if (cachePrefixTokens >= (config.cacheMinTokens ?? DEFAULT_CACHE_MIN_TOKENS)) {
       cacheBreakpointIndex = at;
       messages[at] = { ...messages[at], cacheBreakpoint: true };

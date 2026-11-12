@@ -192,6 +192,40 @@ describe("캐시 옵션(기본값은 지금 동작 그대로)", () => {
     expect(assemblePrompt(card, null, [], big, "입력", { ...cfg, cacheBreakpointPosition: "fixedBlock" }).messages.some((m) => m.cacheBreakpoint)).toBe(false);
   });
 
+  it("stepped: 이력이 step만큼 늘 때만 표시가 옮겨 가고, 그 사이 턴들은 표시까지의 앞부분이 완전히 같다", () => {
+    // 메시지 하나가 환산 100토큰(글자 수 × scale 1), step 500 → 다섯 메시지마다 한 번 옮겨 간다
+    const o = { ...cfg, promptTokenBudget: 1_000_000, cacheBreakpoint: true, cacheBreakpointPosition: "stepped" as const, cacheStepTokens: 500, cacheMinTokens: 1, cacheEstimateScale: 1, lorebookPosition: "beforeInput" as const };
+    const msg = (i: number) => H(i % 2 === 0 ? "USER" : "ASSISTANT", String(i % 10).repeat(100));
+    const at = (n: number) => {
+      const r = assemblePrompt(card, null, lore, Array.from({ length: n }, (_, i) => msg(i)), "입력", o);
+      return { idx: r.cacheBreakpointIndex!, prefix: r.messages.slice(0, r.cacheBreakpointIndex! + 1), marked: r.messages.filter((m) => m.cacheBreakpoint).length };
+    };
+    // 이력이 step 미만이면 이력 앞의 마지막 메시지(여기서는 고정 블록)
+    expect(at(0).idx).toBe(0);
+    expect(at(4).idx).toBe(0);
+    // 5개(500토큰)가 되면 다섯 번째 이력 메시지로 옮겨 가고, 9개까지 그대로다
+    const five = at(5);
+    expect(five.idx).toBe(5);
+    for (const n of [6, 7, 8, 9]) {
+      const x = at(n);
+      expect(x.idx, `이력 ${n}개`).toBe(5);
+      expect(x.prefix).toEqual(five.prefix); // 표시까지의 앞부분이 바이트 단위로 같다 → 재사용 가능
+      expect(x.marked).toBe(1);
+    }
+    // 10개(1000토큰)에서 다시 옮겨 간다
+    expect(at(10).idx).toBe(10);
+    expect(at(14).idx).toBe(10);
+  });
+
+  it("stepped: 걸린 로어북이 바뀌어도(beforeInput 배치) 표시까지의 앞부분은 그대로다", () => {
+    const o = { ...cfg, promptTokenBudget: 1_000_000, cacheBreakpoint: true, cacheBreakpointPosition: "stepped" as const, cacheStepTokens: 500, cacheMinTokens: 1, cacheEstimateScale: 1, lorebookPosition: "beforeInput" as const };
+    const hist7 = Array.from({ length: 7 }, (_, i) => H(i % 2 === 0 ? "USER" : "ASSISTANT", "가".repeat(100)));
+    const a = assemblePrompt(card, null, lore, hist7, "입력1", o);
+    const b = assemblePrompt(card, null, [{ id: "l2", content: "다른 설정", priority: 1 }], hist7, "입력2", o);
+    expect(a.cacheBreakpointIndex).toBe(b.cacheBreakpointIndex);
+    expect(a.messages.slice(0, a.cacheBreakpointIndex! + 1)).toEqual(b.messages.slice(0, b.cacheBreakpointIndex! + 1));
+  });
+
   it("로어북이 입력 앞에 있으면 breakpoint는 로어북이 아니라 그 앞의 안정 메시지", () => {
     const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
     const r = assemblePrompt(card, null, lore, big, "입력", { ...cfg, cacheBreakpoint: true, lorebookPosition: "beforeInput" });

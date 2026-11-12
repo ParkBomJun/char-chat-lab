@@ -144,6 +144,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
     cacheBreakpoint: config.cache.breakpoint,
     cacheMinTokens: config.cache.minTokens,
     cacheBreakpointPosition: config.cache.breakpointPosition,
+    cacheStepTokens: config.cache.stepTokens,
   });
 
   const { adapter, chatModel } = rt.llm;

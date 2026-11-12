@@ -3,8 +3,10 @@
  *   - off: cache_control 없음
  *   - beforeInput: 이번 입력 직전 메시지에 표시(서비스 기본값. 턴마다 표시가 뒤로 옮겨 간다)
  *   - fixedBlock: 고정 블록 끝에 표시를 고정
+ *   - stepped: 이력이 --step 토큰(기본 1500, 환산)만큼 늘 때만 표시를 옮긴다. 이 방식만 로어북을 입력 바로 앞(beforeInput)에 둔다
+ *   --arms off,stepped 처럼 일부 방식만 돌릴 수 있다.
  *   npm run cache:latency                      호출 없이 계획과 예상 비용만 출력
- *   npm run cache:latency -- --real            실제 호출(비용 발생). 기본: 2라운드 × 3개 방식 × 10턴 = 60회
+ *   npm run cache:latency -- --real            실제 호출(비용 발생). 기본: 2라운드 × 4개 방식 × 10턴 = 80회
  * 옵션: --rounds 2 · --turns 10 · --reply-chars 700(과거 응답 길이) · --min-tokens(breakpoint 최소 길이, 기본은 서비스 규칙 3500)
  *       --min-tokens 0 이면 모든 턴에 breakpoint를 붙인다(규칙 없이 효과만 보고 싶을 때) · --gap 1(호출 사이 초) · --max-out 128
  * 설계:
@@ -17,7 +19,7 @@
 import "dotenv/config";
 import { parseArgs } from "node:util";
 import haru from "../prisma/seed-data/haru.json";
-import { assemblePrompt, DEFAULT_CACHE_MIN_TOKENS, type HistoryMessage } from "../src/lib/chat/assemble";
+import { assemblePrompt, DEFAULT_CACHE_MIN_TOKENS, DEFAULT_CACHE_STEP_TOKENS, type HistoryMessage } from "../src/lib/chat/assemble";
 import { estimateCost, pricing } from "../src/lib/pricing";
 import { matchLorebook, type LorebookEntryData } from "../src/lib/lorebook/match";
 import { mergeLlmEnv } from "../src/lib/llm-settings";
@@ -33,6 +35,8 @@ const { values: args } = parseArgs({
     "min-tokens": { type: "string" },
     gap: { type: "string", default: "1" },
     "max-out": { type: "string", default: "128" },
+    arms: { type: "string" },
+    step: { type: "string" },
   },
 });
 const rounds = Math.max(1, Number(args.rounds) || 2);
@@ -41,9 +45,12 @@ const replyChars = Math.max(50, Number(args["reply-chars"]) || 700);
 const minTokens = args["min-tokens"] === undefined ? DEFAULT_CACHE_MIN_TOKENS : Math.max(0, Number(args["min-tokens"]) || 0);
 const gapMs = Math.max(0, Number(args.gap) || 1) * 1000;
 const maxOut = Math.max(16, Number(args["max-out"]) || 128);
-type Arm = "off" | "beforeInput" | "fixedBlock";
-const ARMS: Arm[] = ["off", "beforeInput", "fixedBlock"];
-const ARM_LABEL: Record<Arm, string> = { off: "표시 없음", beforeInput: "beforeInput", fixedBlock: "fixedBlock" };
+type Arm = "off" | "beforeInput" | "fixedBlock" | "stepped";
+const ALL_ARMS: Arm[] = ["off", "beforeInput", "fixedBlock", "stepped"];
+const ARMS: Arm[] = (args.arms ?? ALL_ARMS.join(",")).split(",").map((x) => x.trim()).filter((x): x is Arm => (ALL_ARMS as string[]).includes(x));
+if (ARMS.length === 0) throw new Error(`--arms 에는 ${ALL_ARMS.join(", ")} 중에서 지정하세요.`);
+const stepTokens = Math.max(1, Number(args.step) || DEFAULT_CACHE_STEP_TOKENS);
+const ARM_LABEL: Record<Arm, string> = { off: "표시 없음", beforeInput: "beforeInput", fixedBlock: "fixedBlock", stepped: "stepped" };
 const calls = rounds * ARMS.length * turns;
 
 const userLines = [
@@ -68,9 +75,11 @@ function build(arm: Arm, tag: string, t: number, history: HistoryMessage[]) {
   const a = assemblePrompt(character, null, hits, history, input, {
     promptTokenBudget: 100_000,
     lorebookTokenBudget: 800,
-    lorebookPosition: "afterFixed",
+    // stepped만 로어북을 입력 바로 앞에 둔다(걸린 항목이 바뀌어도 표시까지의 앞부분이 유지되도록). 나머지는 서비스 기본값(afterFixed)
+    lorebookPosition: arm === "stepped" ? "beforeInput" : "afterFixed",
     cacheBreakpoint: arm !== "off",
-    cacheBreakpointPosition: arm === "fixedBlock" ? "fixedBlock" : "beforeInput",
+    cacheBreakpointPosition: arm === "off" ? "beforeInput" : arm,
+    cacheStepTokens: stepTokens,
     cacheMinTokens: minTokens,
   });
   return { a, input };
@@ -78,7 +87,8 @@ function build(arm: Arm, tag: string, t: number, history: HistoryMessage[]) {
 
 /**
  * 오프라인 예상(호출 없음). 가정: 실제 토큰 = 글자 수 추정 × 0.59(2026-11-12 실측 배율), 출력은 max-out 전부.
- * 과금 가정(docs/CACHE.md): beforeInput은 매 턴 표시까지의 앞부분에 읽기+쓰기, fixedBlock은 첫 턴만 읽기+쓰기이고 이후 읽기만, 나머지는 일반 요금.
+ * 과금 가정(docs/CACHE.md): 표시까지의 앞부분이 직전 턴과 같으면 읽기만, 달라졌으면(첫 턴 포함) 읽기+쓰기, 나머지는 일반 요금.
+ * (fixedBlock에서 로어북이 바뀌어 다시 만드는 경우는 반영하지 않은 근사다.)
  */
 function estimate(model: string) {
   const R = 0.59;
@@ -87,12 +97,14 @@ function estimate(model: string) {
     let cost = 0;
     let inputSum = 0;
     const history: HistoryMessage[] = [];
+    let prevBp: number | null = null;
     for (let t = 0; t < turns; t++) {
       const { a, input } = build(arm, "plan", t, history);
       const total = Math.round(a.blockTokens.total * R);
       const bp = a.cacheBreakpointIndex;
       const prefix = bp === null ? 0 : Math.min(total, Math.round(a.messages.slice(0, bp + 1).reduce((n, m) => n + m.content.length, 0) * R));
-      const write = bp === null ? 0 : arm === "fixedBlock" && t > 0 ? 0 : prefix;
+      const write = bp === null ? 0 : t > 0 && bp === prevBp ? 0 : prefix;
+      prevBp = bp;
       cost += estimateCost(model, { inputTokens: total, cachedInputTokens: prefix, cacheWriteTokens: write, outputTokens: maxOut }, pricing).cost;
       inputSum += total;
       history.push({ role: "USER", content: input }, { role: "ASSISTANT", content: cannedReply(t) });
@@ -116,7 +128,7 @@ async function resolveEnv() {
 function printPlan(model: string) {
   const est = estimate(model);
   const priced = pricing.models[model] !== undefined;
-  console.log(`계획: ${rounds}라운드 × (${ARMS.map((x) => ARM_LABEL[x]).join(", ")}) × ${turns}턴 = ${calls}회 · 과거 응답 길이 ${replyChars}자 · 최대 출력 ${maxOut}토큰 · breakpoint 최소 길이 ${minTokens}토큰(환산) · 호출 간격 ${gapMs / 1000}초`);
+  console.log(`계획: ${rounds}라운드 × (${ARMS.map((x) => ARM_LABEL[x]).join(", ")}) × ${turns}턴 = ${calls}회 · stepped 간격 ${stepTokens}토큰(환산) · 과거 응답 길이 ${replyChars}자 · 최대 출력 ${maxOut}토큰 · breakpoint 최소 길이 ${minTokens}토큰(환산) · 호출 간격 ${gapMs / 1000}초`);
   console.log(`예상(오프라인 계산, 모델 ${model}${priced ? "" : " — 단가표에 없어 비용 0으로 나옴"}):`);
   let sum = 0;
   for (const arm of ARMS) {
@@ -203,7 +215,7 @@ async function main() {
   console.log("\n── 턴별 비용(라운드 평균, $)과 누적 ──");
   console.log(`| 턴 | 입력 토큰 | ${ARMS.map((a) => `${ARM_LABEL[a]}`).join(" | ")} | ${ARMS.map((a) => `누적 ${ARM_LABEL[a]}`).join(" | ")} |`);
   console.log(`| --- | --- | ${ARMS.map(() => "---").join(" | ")} | ${ARMS.map(() => "---").join(" | ")} |`);
-  const cum: Record<Arm, number> = { off: 0, beforeInput: 0, fixedBlock: 0 };
+  const cum: Record<Arm, number> = { off: 0, beforeInput: 0, fixedBlock: 0, stepped: 0 };
   for (let t = 1; t <= turns; t++) {
     const costs = ARMS.map((a) => meanAt(a, t, "cost"));
     ARMS.forEach((a, i) => (cum[a] += costs[i] ?? 0));
