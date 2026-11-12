@@ -254,6 +254,8 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.9
 .admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .admin-table th { font-size: 12px; font-weight: 600; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 .admin-table td { padding: 11px 12px; border-bottom: 1px solid var(--line); }
+/* 표 안에서는 낱말 중간에서 꺾지 않는다(칸 폭 계산이 좁아져 값이 두 줄로 꺾이는 것을 막는다). 넓으면 표만 가로로 스크롤 */
+.admin-table th, .admin-table td { overflow-wrap: normal; }
 .admin-table th:first-child, .admin-table td:first-child { padding-left: 0; }
 .admin-table th:last-child, .admin-table td:last-child { padding-right: 0; }
 .admin-table .num { text-align: right; white-space: nowrap; }
