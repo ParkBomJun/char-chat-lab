@@ -4,6 +4,7 @@
  *   - beforeInput: 이번 입력 직전 메시지에 표시(서비스 기본값. 턴마다 표시가 뒤로 옮겨 간다)
  *   - fixedBlock: 고정 블록 끝에 표시를 고정
  *   - stepped: 이력이 --step 토큰(기본 1500, 환산)만큼 늘 때만 표시를 옮긴다. 이 방식만 로어북을 입력 바로 앞(beforeInput)에 둔다
+ *   - inline: fixedBlock + 로어북 전체를 고정 블록에 상시 포함(키워드 매칭 없음). --arms 로 지정했을 때만 돈다
  *   --arms off,stepped 처럼 일부 방식만 돌릴 수 있다.
  *   npm run cache:latency                      호출 없이 계획과 예상 비용만 출력
  *   npm run cache:latency -- --real            실제 호출(비용 발생). 기본: 2라운드 × 4개 방식 × 10턴 = 80회
@@ -21,7 +22,8 @@ import { parseArgs } from "node:util";
 import haru from "../prisma/seed-data/haru.json";
 import { assemblePrompt, DEFAULT_CACHE_MIN_TOKENS, DEFAULT_CACHE_STEP_TOKENS, type HistoryMessage } from "../src/lib/chat/assemble";
 import { estimateCost, pricing } from "../src/lib/pricing";
-import { matchLorebook, type LorebookEntryData } from "../src/lib/lorebook/match";
+import type { LorebookEntryData } from "../src/lib/lorebook/match";
+import { planLorebook } from "../src/lib/lorebook/plan";
 import { mergeLlmEnv } from "../src/lib/llm-settings";
 import { OpenAiCompatAdapter } from "../src/lib/llm/openai";
 import { quantile } from "./stats-lib";
@@ -45,12 +47,12 @@ const replyChars = Math.max(50, Number(args["reply-chars"]) || 700);
 const minTokens = args["min-tokens"] === undefined ? DEFAULT_CACHE_MIN_TOKENS : Math.max(0, Number(args["min-tokens"]) || 0);
 const gapMs = Math.max(0, Number(args.gap) || 1) * 1000;
 const maxOut = Math.max(16, Number(args["max-out"]) || 128);
-type Arm = "off" | "beforeInput" | "fixedBlock" | "stepped";
-const ALL_ARMS: Arm[] = ["off", "beforeInput", "fixedBlock", "stepped"];
-const ARMS: Arm[] = (args.arms ?? ALL_ARMS.join(",")).split(",").map((x) => x.trim()).filter((x): x is Arm => (ALL_ARMS as string[]).includes(x));
+type Arm = "off" | "beforeInput" | "fixedBlock" | "stepped" | "inline";
+const ALL_ARMS: Arm[] = ["off", "beforeInput", "fixedBlock", "stepped", "inline"];
+const ARMS: Arm[] = (args.arms ?? "off,beforeInput,fixedBlock,stepped").split(",").map((x) => x.trim()).filter((x): x is Arm => (ALL_ARMS as string[]).includes(x));
 if (ARMS.length === 0) throw new Error(`--arms 에는 ${ALL_ARMS.join(", ")} 중에서 지정하세요.`);
 const stepTokens = Math.max(1, Number(args.step) || DEFAULT_CACHE_STEP_TOKENS);
-const ARM_LABEL: Record<Arm, string> = { off: "표시 없음", beforeInput: "beforeInput", fixedBlock: "fixedBlock", stepped: "stepped" };
+const ARM_LABEL: Record<Arm, string> = { off: "표시 없음", beforeInput: "beforeInput", fixedBlock: "fixedBlock", stepped: "stepped", inline: "fixedBlock+상시 포함" };
 const calls = rounds * ARMS.length * turns;
 
 const userLines = [
@@ -71,14 +73,16 @@ type Sample = { arm: Arm; round: number; turn: number; attached: boolean; ttft: 
 function build(arm: Arm, tag: string, t: number, history: HistoryMessage[]) {
   const character = { ...haru.character, persona: `(실험 ${tag})\n${haru.character.persona}` };
   const input = userLines[t % userLines.length];
-  const hits = matchLorebook(lorebook, [...history, { role: "USER", content: input }], 4);
-  const a = assemblePrompt(character, null, hits, history, input, {
+  // inline 방식은 로어북 전체를 고정 블록에 넣고 키워드 매칭을 하지 않는다(서비스의 planLorebook과 같은 결과)
+  const plan = planLorebook(lorebook, [...history, { role: "USER", content: input }], { scanTurns: 4, inlineMaxTokens: arm === "inline" ? 1_000_000 : 0 });
+  const a = assemblePrompt(character, null, plan.hits, history, input, {
+    fixedLorebook: plan.inline,
     promptTokenBudget: 100_000,
     lorebookTokenBudget: 800,
     // stepped만 로어북을 입력 바로 앞에 둔다(걸린 항목이 바뀌어도 표시까지의 앞부분이 유지되도록). 나머지는 서비스 기본값(afterFixed)
     lorebookPosition: arm === "stepped" ? "beforeInput" : "afterFixed",
     cacheBreakpoint: arm !== "off",
-    cacheBreakpointPosition: arm === "off" ? "beforeInput" : arm,
+    cacheBreakpointPosition: arm === "off" ? "beforeInput" : arm === "inline" ? "fixedBlock" : arm,
     cacheStepTokens: stepTokens,
     cacheMinTokens: minTokens,
   });
@@ -215,7 +219,7 @@ async function main() {
   console.log("\n── 턴별 비용(라운드 평균, $)과 누적 ──");
   console.log(`| 턴 | 입력 토큰 | ${ARMS.map((a) => `${ARM_LABEL[a]}`).join(" | ")} | ${ARMS.map((a) => `누적 ${ARM_LABEL[a]}`).join(" | ")} |`);
   console.log(`| --- | --- | ${ARMS.map(() => "---").join(" | ")} | ${ARMS.map(() => "---").join(" | ")} |`);
-  const cum: Record<Arm, number> = { off: 0, beforeInput: 0, fixedBlock: 0, stepped: 0 };
+  const cum: Record<Arm, number> = { off: 0, beforeInput: 0, fixedBlock: 0, stepped: 0, inline: 0 };
   for (let t = 1; t <= turns; t++) {
     const costs = ARMS.map((a) => meanAt(a, t, "cost"));
     ARMS.forEach((a, i) => (cum[a] += costs[i] ?? 0));

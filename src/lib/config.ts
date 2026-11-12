@@ -11,6 +11,7 @@ const schema = z.object({
   RECENT_TURNS: num(20, 1),
   SUMMARY_EVERY: num(10, 1),
   LOREBOOK_SCAN_TURNS: num(4, 1),
+  LOREBOOK_INLINE_MAX_TOKENS: num(1000, 0),
   DAILY_MESSAGE_LIMIT: num(50, 1),
   PROMPT_TOKEN_BUDGET: num(6000, 500),
   LOREBOOK_TOKEN_BUDGET: num(800, 0),
@@ -26,7 +27,7 @@ const schema = z.object({
   QUALITY_MIN_HANGUL_RATIO: flt(0.9),
   CACHE_BREAKPOINT: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["0", "1", "true", "false"]).default("1")),
   CACHE_MIN_TOKENS: num(3500, 1),
-  CACHE_BREAKPOINT_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["beforeInput", "fixedBlock", "stepped"]).default("beforeInput")),
+  CACHE_BREAKPOINT_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["beforeInput", "fixedBlock", "stepped"]).default("fixedBlock")),
   CACHE_STEP_TOKENS: num(1500, 1),
   LOREBOOK_POSITION: z.preprocess((v) => (v === "" ? undefined : v), z.enum(["afterFixed", "beforeInput"]).default("afterFixed")),
 });
@@ -35,6 +36,8 @@ export type AppConfig = {
   recentTurns: number;
   summaryEvery: number;
   lorebookScanTurns: number;
+  /** 활성 로어북 전체의 추정 토큰이 이 값 이하면 고정 블록에 상시 포함한다. 0이면 항상 키워드 방식 */
+  lorebookInlineMaxTokens: number;
   dailyMessageLimit: number;
   promptTokenBudget: number;
   lorebookTokenBudget: number;
@@ -57,6 +60,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     recentTurns: e.RECENT_TURNS,
     summaryEvery: e.SUMMARY_EVERY,
     lorebookScanTurns: e.LOREBOOK_SCAN_TURNS,
+    lorebookInlineMaxTokens: e.LOREBOOK_INLINE_MAX_TOKENS,
     dailyMessageLimit: e.DAILY_MESSAGE_LIMIT,
     promptTokenBudget: e.PROMPT_TOKEN_BUDGET,
     lorebookTokenBudget: e.LOREBOOK_TOKEN_BUDGET,

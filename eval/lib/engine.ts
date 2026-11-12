@@ -8,7 +8,8 @@
 import { assemblePrompt, type CharacterCard } from "@/lib/chat/assemble";
 import { collectText } from "@/lib/llm/collect";
 import type { LlmAdapter } from "@/lib/llm/types";
-import { matchLorebook, type LorebookEntryData } from "@/lib/lorebook/match";
+import type { LorebookEntryData } from "@/lib/lorebook/match";
+import { planLorebook } from "@/lib/lorebook/plan";
 import { SUMMARY_MAX_OUTPUT_TOKENS } from "@/lib/memory/prompt";
 import { runSummaryUpdate } from "@/lib/memory/update";
 import { estimateTokens } from "@/lib/tokens";
@@ -34,6 +35,8 @@ export type EngineConfig = {
   promptTokenBudget: number;
   lorebookTokenBudget: number;
   lorebookScanTurns: number;
+  /** 서비스의 LOREBOOK_INLINE_MAX_TOKENS와 같은 뜻. 없으면 0(항상 키워드 방식) */
+  lorebookInlineMaxTokens?: number;
   maxOutputTokens: number;
   classifierThreshold: number;
   flow: FlowConfig;
@@ -190,10 +193,11 @@ export async function runTurn(conv: SimConversation, index: number, userInput: s
     const at = conv.messages.findIndex((m) => m.id === summary.coversUntilMsg);
     recent = conv.messages.slice(at + 1).filter((m) => !m.retracted);
   }
-  const hits = matchLorebook(conv.lorebook, [...recent, { role: "USER", content: userInput }], cfg.lorebookScanTurns);
-  const assembled = assemblePrompt(conv.character, summary?.content ?? null, hits, recent, userInput, {
+  const lorePlan = planLorebook(conv.lorebook, [...recent, { role: "USER", content: userInput }], { scanTurns: cfg.lorebookScanTurns, inlineMaxTokens: cfg.lorebookInlineMaxTokens ?? 0 });
+  const assembled = assemblePrompt(conv.character, summary?.content ?? null, lorePlan.hits, recent, userInput, {
     promptTokenBudget: cfg.promptTokenBudget,
     lorebookTokenBudget: cfg.lorebookTokenBudget,
+    fixedLorebook: lorePlan.inline,
   });
   result.blockTokens = assembled.blockTokens;
   conv.add("USER", userInput, false);

@@ -7,6 +7,8 @@ import { estimateTokens } from "@/lib/tokens";
 /** 조립 결과의 디버깅용 부가 정보 */
 export type PromptMeta = {
   lorebookIds: string[];
+  /** 고정 블록에 상시 포함된 로어북 항목 id(없으면 생략) */
+  inlineLorebookIds?: string[];
   droppedRecent: number;
   /** 블록별 해시(원문 없음)와, 직전 턴 대비 캐시 접두사가 처음 달라진 블록 */
   prefix?: PrefixHashes;

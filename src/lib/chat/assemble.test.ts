@@ -163,7 +163,7 @@ describe("캐시 옵션(기본값은 지금 동작 그대로)", () => {
     expect(r.messages.at(-1)?.cacheBreakpoint).toBeUndefined();
   });
 
-  it("★ 표시 위치 기본값은 beforeInput(지금 동작): 옵션을 주지 않으면 이번 입력 직전 메시지, 턴이 늘면 뒤로 옮겨 간다", () => {
+  it("beforeInput(비용 우선 옵션): 조립기에 위치를 주지 않아도 같은 동작이다. 이번 입력 직전 메시지에 붙고 턴이 늘면 뒤로 옮겨 간다(서비스 기본값은 설정에서 fixedBlock)", () => {
     const big = [H("USER", "a".repeat(8000)), H("ASSISTANT", "b".repeat(8000))];
     const o = { ...cfg, cacheBreakpoint: true };
     const r1 = assemblePrompt(card, null, [], big, "입력", o);

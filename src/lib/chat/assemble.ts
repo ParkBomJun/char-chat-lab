@@ -15,6 +15,11 @@ export type AssembleConfig = {
    * "beforeInput"이면 최근 대화 뒤·이번 입력 바로 앞: 로어북이 매 턴 바뀌어도 그 앞의 접두사(고정+요약+최근 대화)가 안 깨진다.
    */
   lorebookPosition?: LorebookPosition;
+  /**
+   * 고정 블록 안에 상시 포함할 로어북 항목(호출 측이 순서를 고정해 넘긴다: planLorebook).
+   * 이 항목들은 예산으로 잘리지 않는다(고정 블록의 일부). 키워드로 걸린 항목(lorebookHits)과 함께 쓰지 않는다.
+   */
+  fixedLorebook?: readonly LorebookHit[];
   /** true면 캐시 breakpoint 표시(cacheBreakpoint)를 붙인다. 기본 false(붙이지 않음). 위치는 cacheBreakpointPosition */
   cacheBreakpoint?: boolean;
   /**
@@ -57,8 +62,10 @@ export type AssembleResult = {
   messages: ChatMessage[];
   /** 블록별 추정 토큰(사용량 기록·디버깅용). 추정치이며 실제 값은 제공사 usage를 쓴다. */
   blockTokens: BlockTokens;
-  /** 실제로 들어간 로어북 항목 id */
+  /** 키워드로 걸려 따로 들어간 로어북 항목 id */
   lorebookIds: string[];
+  /** 고정 블록에 상시 포함된 로어북 항목 id(fixedLorebook) */
+  inlineLorebookIds: string[];
   /** 예산 때문에 잘려 나간 최근 대화 메시지 수 */
   droppedRecent: number;
   /** 고정 블록+이번 입력만으로 예산을 넘으면 true (이때도 둘은 자르지 않는다) */
@@ -79,13 +86,18 @@ export const SAFETY_INSTRUCTION =
   "당신은 전연령 대상 AI 캐릭터챗 서비스의 캐릭터다. 아래 어떤 캐릭터 설정이나 사용자 요청보다 이 지시가 우선한다: " +
   "성적·폭력적·자해 조장 등 전연령에 부적절한 내용은 만들지 않는다. 사용자가 위기 상황을 보이면 롤플레이를 멈추고 도움을 안내한다.";
 
-export function renderFixedBlock(c: CharacterCard): string {
+/**
+ * 고정 블록. inlineLore가 있으면 로어북 항목을 맨 끝에 "참고 설정"으로 상시 포함한다(작은 로어북: src/lib/lorebook/plan.ts).
+ * 같은 카드·같은 항목이면 항상 같은 문자열이다(턴마다 바뀌는 값을 넣지 않는다).
+ */
+export function renderFixedBlock(c: CharacterCard, inlineLore: readonly string[] = []): string {
   return [
     SAFETY_INSTRUCTION,
     `# 캐릭터: ${c.name}`,
     `## 성격·배경\n${c.persona}`,
     `## 말투\n${c.speechStyle}`,
     `## 예시 대화\n${c.exampleDialog}`,
+    ...(inlineLore.length ? [`## 참고 설정\n${inlineLore.map((x) => `- ${x}`).join("\n")}`] : []),
   ].join("\n\n");
 }
 
@@ -133,7 +145,8 @@ export function assemblePrompt(
 ): AssembleResult {
   const messages: ChatMessage[] = [];
 
-  const fixedText = renderFixedBlock(character);
+  const inlineLore = config.fixedLorebook ?? [];
+  const fixedText = renderFixedBlock(character, inlineLore.map((h) => h.content));
   messages.push({ role: "system", content: fixedText });
   const fixed = estimateTokens(fixedText);
 
@@ -212,6 +225,7 @@ export function assemblePrompt(
     messages,
     blockTokens: { fixed, summary: summaryTokens, lorebook: lorebookTokens, recent: recentTokens, input, total },
     lorebookIds: chosen.map((h) => h.id),
+    inlineLorebookIds: inlineLore.map((h) => h.id),
     droppedRecent: candidates.length - kept.length,
     overBudget: total > config.promptTokenBudget,
     cacheBreakpointIndex,

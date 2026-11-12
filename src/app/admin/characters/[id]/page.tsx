@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { CharacterForm } from "@/components/admin/CharacterForm";
 import { renderFixedBlock } from "@/lib/chat/assemble";
+import { loadConfig } from "@/lib/config";
+import { lorebookInlineSize, planLorebook } from "@/lib/lorebook/plan";
 import { estimateTokens } from "@/lib/tokens";
 import { deleteLoreAction, saveLoreAction } from "@/app/admin/actions";
 import { MAX_KEYWORDS_PER_ENTRY, MIN_KEYWORD_LENGTH } from "@/lib/lorebook/keywords";
@@ -19,7 +21,10 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
   });
   if (!character) notFound();
 
-  const fixedTokens = estimateTokens(renderFixedBlock(character));
+  const cfg = loadConfig();
+  const lorePlan = planLorebook(character.lorebook, [], { scanTurns: cfg.lorebookScanTurns, inlineMaxTokens: cfg.lorebookInlineMaxTokens });
+  const loreSize = lorebookInlineSize(character.lorebook);
+  const fixedTokens = estimateTokens(renderFixedBlock(character, lorePlan.inline.map((h) => h.content)));
   const error = one(sp.error);
   const saved = one(sp.saved);
   // 저장 때 SOFT 규칙에 걸린 필드·범주(허용된 이름만 되읽는다)
@@ -53,6 +58,13 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
       />
 
       <h2 id="lorebook">로어북 ({character.lorebook.length})</h2>
+      <p className="who">
+        {lorePlan.mode === "inline"
+          ? `지금은 상시 포함 방식입니다: 활성 항목 전체(추정 ${loreSize.toLocaleString("ko-KR")}토큰)가 기준 ${cfg.lorebookInlineMaxTokens.toLocaleString("ko-KR")}토큰 이하라 키워드와 무관하게 고정 블록에 항상 들어갑니다. 항목을 수정·추가·삭제하면 고정 블록이 바뀌어 캐시가 한 번 새로 만들어집니다.`
+          : lorePlan.mode === "keyword"
+            ? `지금은 키워드 방식입니다: 활성 항목 전체(추정 ${loreSize.toLocaleString("ko-KR")}토큰)가 기준 ${cfg.lorebookInlineMaxTokens.toLocaleString("ko-KR")}토큰을 넘어, 최근 대화에 키워드가 나온 항목만 들어갑니다. 걸린 항목이 바뀌는 턴에는 캐시가 다시 만들어집니다.`
+            : "활성 항목이 없습니다."}
+      </p>
       <p className="who">
         키워드는 줄바꿈이나 쉼표로 구분합니다. 공백을 뺀 {MIN_KEYWORD_LENGTH}글자 이상, 항목당 최대 {MAX_KEYWORDS_PER_ENTRY}개. 부분 문자열로 매칭되므로
         &quot;정원&quot;은 &quot;정원사&quot;에도 걸립니다 — 구체적인 키워드를 쓰세요. 최근 대화에 키워드가 나오면 우선순위가 높은 항목부터 예산 안에서 프롬프트에 들어갑니다.

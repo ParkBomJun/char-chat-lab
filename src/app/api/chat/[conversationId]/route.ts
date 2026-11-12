@@ -12,7 +12,7 @@ import { diagnoseCacheBreak, readPrefixHashes } from "@/lib/chat/prefix-diag";
 import { buildUsageRow } from "@/lib/usage";
 import { formatSse } from "@/lib/sse";
 import { updateSummaryForConversation } from "@/lib/memory/db";
-import { matchLorebook } from "@/lib/lorebook/match";
+import { planLorebook } from "@/lib/lorebook/plan";
 import { checkInput } from "@/lib/safety/input";
 import { StreamGuard, checkOutputFinal, streamEvent } from "@/lib/safety/output";
 import { NOTICE } from "@/lib/safety/messages";
@@ -130,17 +130,19 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
   await saveEvents(conversationId, userMsg.id, input.events);
   await logClassifierCalls(userId, conversationId, input.calls, rt.pricing);
 
-  // 로어북: 최근 M턴(이번 입력 포함)에서 키워드가 나온 활성 항목만. (SPEC 3-4)
+  // 로어북: 전체가 작으면 고정 블록에 상시 포함, 크면 최근 M턴(이번 입력 포함)에서 키워드가 나온 활성 항목만. (SPEC 3-4)
   const entries = await prisma.lorebookEntry.findMany({
     where: { characterId: conv.characterId, enabled: true },
     select: { id: true, keywords: true, content: true, priority: true, enabled: true },
   });
-  const lorebookHits = matchLorebook(entries, [...recent, { role: "USER", content: userInput }], config.lorebookScanTurns);
+  const lorePlan = planLorebook(entries, [...recent, { role: "USER", content: userInput }], { scanTurns: config.lorebookScanTurns, inlineMaxTokens: config.lorebookInlineMaxTokens });
+  const lorebookHits = lorePlan.hits;
 
   const assembled = assemblePrompt(conv.character, summary?.content ?? null, lorebookHits, recent, userInput, {
     promptTokenBudget: config.promptTokenBudget,
     lorebookTokenBudget: config.lorebookTokenBudget,
     lorebookPosition: config.cache.lorebookPosition,
+    fixedLorebook: lorePlan.inline,
     cacheBreakpoint: config.cache.breakpoint,
     cacheMinTokens: config.cache.minTokens,
     cacheBreakpointPosition: config.cache.breakpointPosition,
@@ -277,7 +279,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             model: chatModel,
             usage,
             blockTokens: assembled.blockTokens,
-            promptMeta: { lorebookIds: assembled.lorebookIds, droppedRecent: assembled.droppedRecent, prefix: assembled.prefix, cacheBreak },
+            promptMeta: { lorebookIds: assembled.lorebookIds, ...(assembled.inlineLorebookIds.length ? { inlineLorebookIds: assembled.inlineLorebookIds } : {}), droppedRecent: assembled.droppedRecent, prefix: assembled.prefix, cacheBreak },
             estimatedInputTokens: assembled.blockTokens.total,
             outputText: text,
             ttftMs,

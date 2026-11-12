@@ -70,10 +70,13 @@ describe("loadConfig", () => {
 
 describe("캐시 옵션 설정", () => {
   it("기본값: breakpoint 켬(E6 실측 후 결정), 로어북은 고정 블록 뒤", () => {
-    expect(loadConfig({}).cache).toEqual({ breakpoint: true, minTokens: 3500, lorebookPosition: "afterFixed", breakpointPosition: "beforeInput", stepTokens: 1500 });
+    expect(loadConfig({}).cache).toEqual({ breakpoint: true, minTokens: 3500, lorebookPosition: "afterFixed", breakpointPosition: "fixedBlock", stepTokens: 1500 });
+    expect(loadConfig({}).lorebookInlineMaxTokens).toBe(1000);
+    expect(loadConfig({ LOREBOOK_INLINE_MAX_TOKENS: "0" }).lorebookInlineMaxTokens).toBe(0);
   });
   it("환경변수로 켠다. 잘못된 값은 오류", () => {
-    expect(loadConfig({ CACHE_BREAKPOINT: "0", LOREBOOK_POSITION: "beforeInput", CACHE_MIN_TOKENS: "5000" }).cache).toEqual({ breakpoint: false, minTokens: 5000, lorebookPosition: "beforeInput", breakpointPosition: "beforeInput", stepTokens: 1500 });
+    expect(loadConfig({ CACHE_BREAKPOINT: "0", LOREBOOK_POSITION: "beforeInput", CACHE_MIN_TOKENS: "5000" }).cache).toEqual({ breakpoint: false, minTokens: 5000, lorebookPosition: "beforeInput", breakpointPosition: "fixedBlock", stepTokens: 1500 });
+    expect(loadConfig({ CACHE_BREAKPOINT_POSITION: "beforeInput" }).cache.breakpointPosition).toBe("beforeInput");
     expect(loadConfig({ CACHE_BREAKPOINT_POSITION: "stepped", CACHE_STEP_TOKENS: "800" }).cache).toMatchObject({ breakpointPosition: "stepped", stepTokens: 800 });
     expect(loadConfig({ CACHE_BREAKPOINT_POSITION: "fixedBlock" }).cache.breakpointPosition).toBe("fixedBlock");
     expect(() => loadConfig({ CACHE_BREAKPOINT_POSITION: "end" })).toThrow();

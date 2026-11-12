@@ -84,6 +84,7 @@
 - 캐릭터별 항목: `키워드 목록`, `내용`, `우선순위`, `활성 여부`.
 - 최근 M턴(기본 4)의 사용자·캐릭터 메시지에서 키워드가 나오면 해당 항목을 넣는다.
 - 로어북 블록에도 토큰 예산을 둔다. 넘치면 우선순위 낮은 것부터 뺀다.
+- (2026-11-12) 활성 항목 전체가 작으면(추정 토큰 ≤ `LOREBOOK_INLINE_MAX_TOKENS`, 기본 1000) 키워드 매칭 없이 고정 블록 끝에 항상 넣는다. 키워드로 걸린 항목이 바뀌면 캐시가 다시 만들어지기 때문이다(`docs/CACHE.md` 0절). 순서는 우선순위 → id로 고정한다.
 
 ### 3-5. 안전 파이프라인 (핵심 기능)
 
@@ -247,6 +248,7 @@ model ModerationEvent {
 > - (추가) OpenRouter 호환: 주소 `https://openrouter.ai/api/v1`(채팅은 `/chat/completions`), 모델은 `제공사/모델` 형식. 스트림 도중 HTTP 200 위의 최상위 `error` 청크를 오류로 처리(삼키면 빈/잘린 응답이 됨). 구조화 출력은 모델·endpoint 단위로 지원이 달라 미지원이면 요청이 실패하므로 OpenRouter 프리셋은 기본 off. 설정 화면에 OpenAI/OpenRouter 프리셋과 잘못된 OpenRouter 주소 힌트.
 > - (추가) 추론 모델 대응: 대부분의 제공자에서 출력 토큰 한도(max_tokens)가 추론+본문을 합쳐 적용되어, 한도가 작으면 `finish_reason=length`와 빈 본문이 온다. 설정에 `reasoningEffort`(""=보내지 않음 | none | minimal | low | medium | high, 모든 요청에 `reasoning:{effort}`로 전송 — OpenRouter 규약)와 `maxOutputTokens`(0=MAX_OUTPUT_TOKENS)를 추가. 어댑터는 추론 내용을 사용자에게 보내지 않고 글자 수와 finish_reason만 `done.meta`로 돌려 빈 응답 원인을 설명(`explainEmptyResponse`). 연결 테스트는 실제 대화와 같은 한도·추론 강도로 시험한다(이전에는 32토큰 고정이라 추론 모델이 항상 실패).
 > - (추가) 실제 청구액: `UsageLog.actualCost Decimal?`(마이그레이션 `20261111060000_usage_actual_cost`). OpenRouter가 주는 `usage.cost`를 그대로 저장하고, `estCost`(단가표 추정)는 비교용으로 유지. `/admin` 비용 표시는 행 단위로 `coalesce(actualCost, estCost)`를 우선 사용(기존 행은 actualCost=NULL이라 추정값). `pricing.json`에 선택 항목 `cacheWritePer1M`(캐시 쓰기 단가, 없으면 0)을 두고 추정에 반영한다. 2026-11-11 실측(OpenRouter+Gemini, `docs/CACHE.md`): `cache_control`을 쓰면 첫 요청부터 cached = cache_write이고 같은 토큰에 읽기+쓰기 단가가 모두 청구되므로 추정식도 그렇게 계산한다. 관리자 LLM 설정 화면에는 아직 이 항목 입력란이 없다.
+> - (추가) 표시 위치 기본값 변경과 로어북 상시 포함(2026-11-12): `CACHE_BREAKPOINT_POSITION` 기본값을 `fixedBlock`으로 바꿨다(`beforeInput`은 비용 우선 옵션). 활성 로어북 전체의 추정 토큰이 `LOREBOOK_INLINE_MAX_TOKENS`(기본 1000) 이하면 키워드와 무관하게 고정 블록 끝의 "참고 설정"으로 항상 넣고, 넘으면 3-4의 키워드 방식을 쓴다. 방식 결정은 `src/lib/lorebook/plan.ts`(`planLorebook`, 서비스 라우트와 평가 엔진 공용), 고정 블록 렌더는 `renderFixedBlock(card, inlineLore)`. 상시 포함일 때 고정 블록이 턴마다 바이트 단위로 같다는 것을 테스트로 고정했다. 관리자가 로어북을 고치면 고정 블록이 바뀌어 캐시가 한 번 새로 만들어진다. 근거는 `docs/CACHE.md` 0절.
 > - (추가) 캐시 표시 위치 옵션: `CACHE_BREAKPOINT_POSITION` = `beforeInput`(기본, 이번 입력 직전 메시지) | `fixedBlock`(고정 블록 끝에 고정) | `stepped`(이력이 `CACHE_STEP_TOKENS`만큼 늘 때만 옮김, 상태 없이 메시지 목록만으로 위치 결정). 조립기 옵션 `cacheBreakpointPosition`. 기본 동작은 그대로이며 테스트로 고정했다. 세 방식(표시 없음 포함) 비교 실측은 `docs/CACHE.md`, 기본값 변경 여부는 미정.
 > - (추가) 캐시 쓰기 토큰 기록: `UsageLog.cacheWriteTokens Int?`(마이그레이션 `20261112050000_usage_cache_write_tokens`). 제공사 usage의 `cache_write_tokens`를 저장한다. 실측상 캐시를 만드는 요청은 읽기+쓰기, 재사용하는 요청은 읽기만 청구되므로, `/admin`은 대화 호출을 "생성(쓰기 발생) / 재사용(읽기만) / 캐시 없음 / 구분 불가(기록 전 행)"로 나눠 건수와 비율을 보여 준다. 기존 "캐시 적중률"은 "캐시 토큰 비중"으로 이름을 바꿨다. cache-probe에 E8(이어지는 대화)·E9(유지 시간) 추가.
 > - (추가) 카드 저장 시 안전 검사: 관리자 화면의 캐릭터·로어북 저장과 seed가 persona·speechStyle·exampleDialog·greeting·로어북 본문에 규칙 층을 적용한다(모델 호출 없음). HARD면 저장 거부, SOFT면 경고 후 저장. 카드 전용 규칙은 `src/config/card-rules.json`, 구현 `src/lib/safety/card-check.ts`, `src/lib/admin/card-save.ts`. 통합 테스트 `npm run test:card`.
