@@ -45,6 +45,8 @@ export function checkDeployEnv(env: Env, opts: { pricedModels?: string[] } = {})
 
   if (!v(env, "LLM_API_KEY")) warn("LLM_API_KEY가 없습니다. mock 어댑터로 가짜 응답만 나옵니다(공개 데모로는 의미가 없음).");
   else {
+    // 값은 메시지에 넣지 않는다. 붙여 넣다 섞인 공백·제어 문자(방향키 입력 등)가 있으면 요청 헤더를 만들지 못해 모든 호출이 실패하고, 분류기가 fail closed라 모든 입력이 막힌다.
+    if (/[^\x21-\x7e]/.test(env.LLM_API_KEY ?? "")) err("LLM_API_KEY에 공백이나 제어 문자가 섞여 있습니다(붙여 넣을 때 들어간 줄바꿈·방향키 입력 등). 요청을 보내지 못해 모든 대화가 막힙니다. 키를 다시 넣으세요.");
     if (!v(env, "LLM_CHAT_MODEL")) err("LLM_API_KEY가 있는데 LLM_CHAT_MODEL이 비어 있습니다.");
     if (!v(env, "LLM_CLASSIFIER_MODEL")) warn("LLM_CLASSIFIER_MODEL이 비어 있어 안전 분류기·요약에 대화 모델을 씁니다(비용 증가).");
     if (env.LLM_PROVIDER === "mock") warn("LLM_PROVIDER=mock이라 키가 있어도 가짜 응답을 씁니다.");

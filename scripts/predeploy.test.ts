@@ -53,6 +53,27 @@ describe("predeploy 점검", () => {
     expect(none.filter((f) => f.level === "error")).toEqual([]);
     expect(none.some((f) => f.message.includes("mock"))).toBe(true);
   });
+  it("★ 키에 공백이나 제어 문자가 섞이면 오류(값은 메시지에 넣지 않는다)", () => {
+    const key = "sk-or-v1-0123456789abcdef";
+    expect(errors({ ...good, LLM_API_KEY: key })).toEqual([]);
+    const cases = [
+      `${key.slice(0, 12)}\u001b[C${key.slice(12)}`, // 붙여 넣다 눌린 방향키
+      `${key}\r`, // 줄 끝의 CR
+      ` ${key}`, // 앞 공백
+      `${key} `, // 뒤 공백
+      `${key.slice(0, 5)} ${key.slice(5)}`, // 중간 공백
+      `${key}\t`,
+      `${key}한`, // ASCII 밖 글자
+    ];
+    for (const bad of cases) {
+      const e = errors({ ...good, LLM_API_KEY: bad });
+      expect(e, JSON.stringify(bad)).toHaveLength(1);
+      expect(e[0]).toContain("제어 문자");
+      expect(e[0]).not.toContain("0123456789abcdef");
+    }
+    // 키가 비어 있거나 공백뿐이면 "키 없음" 경고 쪽이지 이 오류가 아니다
+    expect(errors({ ...good, LLM_API_KEY: "   " })).toEqual([]);
+  });
   it("단가표에 없는 모델은 경고(비용 0 기록)", () => {
     const w = checkDeployEnv(good, { pricedModels: [] }).filter((f) => f.level === "warn");
     expect(w.map((f) => f.message).join()).toContain("pricing.json");

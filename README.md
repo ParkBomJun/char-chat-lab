@@ -9,7 +9,7 @@
 | 데모 | https://garden-library.koreacentral.cloudapp.azure.com (2026-11-14 배포) · 계정 `demo@example.com` / `ccff5d1aa0a5ca6a`. 여러 사람이 같이 쓰는 계정이라 대화가 다른 방문자에게 보일 수 있고, 하루 30회 한도가 있다. 대화는 하루에 한 번 지운다. 가입은 닫아 두었다 |
 | 스택 | Next.js 16 (App Router), React 19, TypeScript strict, PostgreSQL + Prisma 7, Auth.js v5, SSE, Vitest, Docker |
 | 모델 | OpenRouter 경유 `google/gemini-3.8-flash` (대화와 안전 분류기 모두) |
-| 테스트 | 단위 테스트 490개, 비공개 필드 누출 E2E, 카드 저장 검사 E2E |
+| 테스트 | 단위 테스트 491개, 비공개 필드 누출 E2E, 카드 저장 검사 E2E |
 | 사용자 | 실사용자는 없다. 아래 숫자는 실제 모델 실측과 mock 검증이고, 항목마다 어느 쪽인지 적었다 |
 
 | 첫 화면 | 채팅 |
