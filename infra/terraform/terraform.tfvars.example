@@ -1,0 +1,12 @@
+# 복사해서 terraform.tfvars로 쓴다. terraform.tfvars와 상태 파일은 커밋하지 않는다.
+subscription_id   = "00000000-0000-0000-0000-000000000000"
+dns_label         = "your-label"                 # 주소: <dns_label>.<location>.cloudapp.azure.com
+ssh_public_key    = "ssh-ed25519 AAAA... comment" # cat ~/.ssh/<키>.pub
+my_ip_cidr        = "203.0.113.10/32"            # SSH를 허용할 내 공인 IP
+budget_amount     = 70000                        # 구독의 청구 통화 기준
+budget_start_date = "2026-11-01T00:00:00Z"       # 이번 달 1일
+alert_emails      = ["you@example.com"]
+
+# 기본값을 바꿀 때만 적는다
+# location = "koreacentral"
+# vm_size  = "Standard_B2s"

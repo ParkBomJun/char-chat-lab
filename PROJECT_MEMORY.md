@@ -39,8 +39,11 @@
 - 2026-11-12 오후: 캐시 표시 위치 기본값 `fixedBlock`, 로어북 상시 포함, E9. 캐시 작업 종료.
 - 2026-11-12 저녁: 프론트 개편(사용자가 확인한 시안 기준). 화면 이름 "정원 도서관"(저장소·패키지·문서 이름은 그대로), 색 토큰 교체, Pretendard(`pretendard` 패키지, 직접 제공), 어두운 화면 미지원(`color-scheme: light`). 첫 화면·채팅·로그인·관리자 전부 교체. 캐릭터 그림 필드 `Character.imageUrl`·`avatarUrl` 추가(마이그레이션 `20261112130000_character_images`, 테스트 DB와 개발 DB 적용).
 - 2026-11-13: README를 실측 중심으로 교체, 저장소 공개 전 이력 점검, GitHub에 공개. 캐릭터 그림(이미지 생성 AI로 만든 표지와 아바타, `public/characters/haru/`) 추가. 첫 화면 "내 대화"는 사용자 메시지가 있는 대화만 보인다. 일일 한도 안내는 화면과 서버가 같은 문구를 쓴다. 단위 테스트 478개.
-- 2026-11-14: 공개 배포 0단계(코드 준비) 완료. 가입 스위치 `SIGNUP_ENABLED`, 공용 데모 계정 안내 `DEMO_NOTICE`(판단은 `src/lib/demo-mode.ts`), 앱 포트 바인딩 `APP_BIND`, 앞단 프록시 `docker-compose.proxy.yml`·`Caddyfile`, predeploy 경고 3개. 운영+프록시 구성을 로컬에서 올려 확인했다(`SITE_ADDRESS=localhost`, mock). 단위 테스트 490개. 클라우드 리소스는 아직 만들지 않았다. 1단계(인프라)부터는 사용자가 정할 것(호스팅, VM 크기, 지역, DNS 레이블, 연락처, 유지 기간)을 받은 뒤 시작한다.
-- 남은 일: 공개 배포(1~4단계), 입력 검사와 생성의 동시 시작(배포 뒤), 아래 "미확인으로 남긴 것".
+- 2026-11-14: 공개 배포 0단계(코드 준비) 완료. 가입 스위치 `SIGNUP_ENABLED`, 공용 데모 계정 안내 `DEMO_NOTICE`(판단은 `src/lib/demo-mode.ts`), 앱 포트 바인딩 `APP_BIND`, 앞단 프록시 `docker-compose.proxy.yml`·`Caddyfile`, predeploy 경고 3개. 운영+프록시 구성을 로컬에서 올려 확인했다(`SITE_ADDRESS=localhost`, mock). 단위 테스트 490개. 이 시점에는 클라우드 리소스를 만들지 않았다.
+- 2026-11-14: 공개 배포 1단계(인프라) 완료. `infra/terraform/`으로 Azure koreacentral에 리소스 12개를 만들었다(리소스 그룹 `rg-charchat-demo`, 가상 네트워크·서브넷, NSG와 규칙 3개, 공인 IP와 DNS 레이블, NIC, VM, 예산 알림). 주소 `garden-library.koreacentral.cloudapp.azure.com`. VM은 `Standard_B2ls_v2`(2 vCPU, 4GB, Ubuntu 24.04): `Standard_B2s`는 이 구독에서 `NotAvailableForSubscription`이라 바꿨다. 자동 종료 없음. 예산 알림은 이 리소스 그룹에만 월 70,000원. 예상 월 약 58,900원(VM 50,800 + 디스크 3,200 + 공인 IP 4,900, 공시 단가). 켜 두는 기간은 사용자가 정한다. 끌 때는 `terraform destroy`.
+  - 서버 확인: SSH 키 접속(전용 키 `~/.ssh/char-chat-lab`, 계정 `demoadmin`), 비밀번호 로그인 꺼짐, cloud-init 완료, Docker와 compose 플러그인 설치, 보안 패치 뒤 재부팅 1회. 밖에서 80·443은 VM까지 닿고(아직 듣는 프로그램 없음) 3000은 막혀 있다. 22는 적용 당시의 내 공인 IP만 허용한다. IP가 바뀌면 `terraform.tfvars`의 `my_ip_cidr`를 고쳐 다시 apply한다.
+  - 상태 파일과 `terraform.tfvars`는 `infra/terraform/`에 로컬로만 있다(커밋 제외). 이 지역의 vCPU 한도 4개를 다른 프로젝트 VM과 합쳐 다 쓰고 있다.
+- 남은 일: 공개 배포(2~4단계), 입력 검사와 생성의 동시 시작(배포 뒤), 아래 "미확인으로 남긴 것".
 
 ## 실측 결론 (README에 쓸 수 있는 것)
 

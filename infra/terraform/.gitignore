@@ -1,0 +1,8 @@
+# 상태 파일과 변수 파일에는 구독 ID·IP·이메일이 들어간다. 커밋하지 않는다.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+*.tfplan
+crash.log
