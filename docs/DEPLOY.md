@@ -1,6 +1,6 @@
 # 배포 가이드
 
-운영 이미지(`Dockerfile`)와 운영 구성(`docker-compose.prod.yml`)을 기준으로 합니다. 이 구성은 로컬에서 실제로 올려 검증했습니다(마이그레이션, seed 보존 모드, 헬스체크, 비루트 실행, 채팅, 관리자 화면, 보안 헤더). **공개 URL에 올리는 단계는 호스팅 계정이 필요해 아직 하지 않았습니다.**
+운영 이미지(`Dockerfile`)와 운영 구성(`docker-compose.prod.yml`)을 기준으로 합니다. 이 구성은 로컬에서 실제로 올려 검증했습니다(마이그레이션, seed 보존 모드, 헬스체크, 비루트 실행, 채팅, 관리자 화면, 보안 헤더). 2026-11-14에 이 구성 그대로 공개 데모를 올렸습니다(맨 아래 "실제 배포 기록").
 
 ## 요구사항
 
@@ -117,6 +117,31 @@ curl https://<SITE_ADDRESS>/api/health
 - [ ] `/api/health` 응답, 데모 계정으로 로그인·대화·차단 동작 확인
 - [ ] 평가 결과를 README에 반영: 정상 케이스는 `npm run redteam:all -- --private <표> --benign-only --real --yes`, 공격 케이스는 `--rules-only`(모델 호출 없음)로만. 공격 케이스는 실제 모델로 보내지 않는다(제공사 약관상 사전 승인 필요)
 - [ ] `/privacy`에 연락처 표시(`CONTACT_EMAIL`)
+
+## 실제 배포 기록 (2026-11-14, Azure VM 한 대)
+
+주소: https://garden-library.koreacentral.cloudapp.azure.com
+
+```
+인터넷 ──443──▶ Caddy(자동 HTTPS) ──▶ app(Next.js, 3000) ──▶ db(PostgreSQL, 내부 전용)
+                 └ 80은 443으로 넘김
+```
+
+1. **인프라**: `infra/terraform/`으로 만들었습니다(`terraform.tfvars.example`을 복사해 값을 채우고 `terraform plan` → `apply`). 리소스 그룹, 가상 네트워크와 서브넷, NSG(80·443 전체, 22는 지정한 IP만), 고정 공인 IP, NIC, VM(Ubuntu 24.04, 2 vCPU · 4GB), 리소스 그룹 예산 알림. cloud-init이 Docker와 compose 플러그인을 설치합니다. 상태 파일과 `terraform.tfvars`는 커밋하지 않습니다.
+2. **주소**: 도메인을 사지 않고 공인 IP의 DNS 레이블(`<이름>.<지역>.cloudapp.azure.com`)을 씁니다. Terraform의 `dns_label` 변수입니다.
+3. **환경변수**: 서버에서 저장소를 clone하고 `.env.production`을 만들었습니다(권한 600). 비밀번호와 `AUTH_SECRET`은 서버에서 `openssl rand`로 만들어 파일에만 두었습니다. `SIGNUP_ENABLED=false`, `DEMO_NOTICE=true`, `APP_BIND=127.0.0.1`, `DAILY_MESSAGE_LIMIT=30`, `TRUST_PROXY_HOPS=1`, `SITE_ADDRESS=<DNS 레이블 주소>`.
+4. **점검**: 서버에 Node를 설치하지 않았으므로 predeploy는 빌드한 이미지 안에서 돌렸습니다.
+   ```bash
+   docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml build
+   docker run --rm --network none -v "$PWD/.env.production:/app/.env.production:ro" char-chat-lab-prod-migrate:latest npm run -s predeploy -- --env-file .env.production
+   ```
+5. **기동**: 위 "프록시 구성"의 명령 그대로입니다. Caddy가 첫 기동 때 인증서를 자동으로 받았습니다. 이미지 빌드는 메모리 4GB에서 스왑 없이 끝났습니다.
+6. **확인(먼저 키 없이 mock으로)**: HTTPS `/api/health`, 인증서, 80→443 넘김, 앱 포트 3000과 DB 포트가 밖에서 열리지 않음, 보안 헤더, 가입 차단(화면과 서버 액션 직접 호출 모두), 데모·관리자 로그인, 데모 안내 표시, 프록시를 거친 채팅 응답이 나눠서 도착하는지.
+7. **실제 모델 연결**: 이 서비스 전용 키를 새로 만들어 제공사 쪽 사용 한도를 걸고, 서버의 `.env.production`에만 넣은 뒤 `up -d`로 앱을 다시 올렸습니다. 관리자 설정 화면에는 키를 저장하지 않습니다. 그 뒤 운영자가 브라우저에서 데모 계정으로 정상 대화를 확인했습니다.
+
+재배포는 서버에서 `git pull` 뒤 같은 `up -d --build` 명령입니다. 내릴 때는 `infra/terraform/`에서 `terraform destroy`입니다.
+
+배포하면서 찾은 문제: `/privacy`가 정적 페이지로 만들어져 `CONTACT_EMAIL`이 이미지 빌드 시점의 빈 값으로 굳었습니다. 실행할 때 읽도록 고쳤습니다. 환경변수를 읽는 화면은 정적으로 만들어지지 않는지 확인해야 합니다.
 
 ## 알려진 한계 (운영 관점)
 

@@ -6,8 +6,8 @@
 ## 목적
 
 - 개인 개발 프로젝트다. GitHub 공개 저장소에서 개발한다. 고급 사용자가 손으로 하던 프롬프트 관리(기억 요약, 로어북, 캐싱)를 서버에서 자동화하고, 안전 층과 비용 기록을 붙여 실측으로 확인한다.
-- 공개하는 것: 저장소, README의 실측 숫자. 공개 URL과 데모 계정은 배포한 뒤 추가한다.
-- 실사용자는 없다. 검증은 실제 모델 실측과 mock 파이프라인이다(공개 배포는 아직 하지 않았다). 문서에는 항상 실측과 시뮬레이션(mock)을 구분해 적는다.
+- 공개하는 것: 저장소, README의 실측 숫자, 데모 주소와 데모 계정(2026-11-14 배포, README 맨 위 표).
+- 실사용자는 없다. 검증은 실제 모델 실측과 mock 파이프라인이다(공개 데모는 2026-11-14에 열었지만 사용 기록을 근거로 쓰지 않는다). 문서에는 항상 실측과 시뮬레이션(mock)을 구분해 적는다.
 
 ## 항상 지킬 규칙
 
@@ -30,7 +30,7 @@
 
 ## 상태
 
-- SPEC 0~9단계 구현 완료(대화 파이프라인, 기억 요약, 로어북, 안전 층, 관리자 화면, 평가, 운영 Docker). **공개 배포는 아직 하지 않았다**(대상 호스팅은 사용자가 정한다).
+- SPEC 0~9단계 구현 완료(대화 파이프라인, 기억 요약, 로어북, 안전 층, 관리자 화면, 평가, 운영 Docker). **공개 데모는 2026-11-14에 배포했다**(https://garden-library.koreacentral.cloudapp.azure.com, 아래 11-14 항목들).
 - 실제 모델: OpenRouter 경유 `google/gemini-3.8-flash`(대화·분류기 모두), 추론 강도 low. 설정은 관리자 화면(`/admin/settings`)에 저장된 값이 환경변수보다 우선.
 - 2026-11-12: 단가표에 `google/gemini-3.8-flash` 추가, 평가 리포트 비용은 실제 청구액 우선. cache-probe E7(문턱) 추가, 실행은 사용자가 한다.
 - 2026-11-12: 카드 추가분 1·2차 반영, E7 표 채움, `CACHE_MIN_TOKENS` 3500, 카드 저장 시 안전 검사, 저장소 .md의 옛 서술 정리.
@@ -41,13 +41,15 @@
 - 2026-11-13: README를 실측 중심으로 교체, 저장소 공개 전 이력 점검, GitHub에 공개. 캐릭터 그림(이미지 생성 AI로 만든 표지와 아바타, `public/characters/haru/`) 추가. 첫 화면 "내 대화"는 사용자 메시지가 있는 대화만 보인다. 일일 한도 안내는 화면과 서버가 같은 문구를 쓴다. 단위 테스트 478개.
 - 2026-11-14: 공개 배포 0단계(코드 준비) 완료. 가입 스위치 `SIGNUP_ENABLED`, 공용 데모 계정 안내 `DEMO_NOTICE`(판단은 `src/lib/demo-mode.ts`), 앱 포트 바인딩 `APP_BIND`, 앞단 프록시 `docker-compose.proxy.yml`·`Caddyfile`, predeploy 경고 3개. 운영+프록시 구성을 로컬에서 올려 확인했다(`SITE_ADDRESS=localhost`, mock). 단위 테스트 490개. 이 시점에는 클라우드 리소스를 만들지 않았다.
 - 2026-11-14: 공개 배포 1단계(인프라) 완료. `infra/terraform/`으로 Azure koreacentral에 리소스 12개를 만들었다(리소스 그룹 `rg-charchat-demo`, 가상 네트워크·서브넷, NSG와 규칙 3개, 공인 IP와 DNS 레이블, NIC, VM, 예산 알림). 주소 `garden-library.koreacentral.cloudapp.azure.com`. VM은 `Standard_B2ls_v2`(2 vCPU, 4GB, Ubuntu 24.04): `Standard_B2s`는 이 구독에서 `NotAvailableForSubscription`이라 바꿨다. 자동 종료 없음. 예산 알림은 이 리소스 그룹에만 월 70,000원. 예상 월 약 58,900원(VM 50,800 + 디스크 3,200 + 공인 IP 4,900, 공시 단가). 켜 두는 기간은 사용자가 정한다. 끌 때는 `terraform destroy`.
-  - 서버 확인: SSH 키 접속(전용 키 `~/.ssh/char-chat-lab`, 계정 `demoadmin`), 비밀번호 로그인 꺼짐, cloud-init 완료, Docker와 compose 플러그인 설치, 보안 패치 뒤 재부팅 1회. 밖에서 80·443은 VM까지 닿고(아직 듣는 프로그램 없음) 3000은 막혀 있다. 22는 적용 당시의 내 공인 IP만 허용한다. IP가 바뀌면 `terraform.tfvars`의 `my_ip_cidr`를 고쳐 다시 apply한다.
+  - 서버 확인: SSH 키 접속(이 서버 전용 키. 계정 이름과 키 위치는 저장소 밖 기록에 있다), 비밀번호 로그인 꺼짐, cloud-init 완료, Docker와 compose 플러그인 설치, 보안 패치 뒤 재부팅 1회. 밖에서 80·443은 VM까지 닿고(아직 듣는 프로그램 없음) 3000은 막혀 있다. 22는 적용 당시의 내 공인 IP만 허용한다. IP가 바뀌면 `terraform.tfvars`의 `my_ip_cidr`를 고쳐 다시 apply한다.
   - 상태 파일과 `terraform.tfvars`는 `infra/terraform/`에 로컬로만 있다(커밋 제외). 이 지역의 vCPU 한도 4개를 다른 프로젝트 VM과 합쳐 다 쓰고 있다.
 - 2026-11-14: 공개 배포 2단계(서버에 올리기) mock 상태로 완료. 서버 `~/char-chat-lab`에 clone, `.env.production`(권한 600, 비밀값은 서버에서 생성해 파일에만 있음, `LLM_API_KEY`는 비어 있음), 운영+프록시 구성으로 기동. 서버에는 Node가 없어 predeploy는 빌드한 migrate 이미지 안에서 돌렸다(`docker run --rm --network none -v $PWD/.env.production:/app/.env.production:ro char-chat-lab-prod-migrate npm run -s predeploy -- --env-file .env.production`, 오류 0건). 이미지 빌드는 4GB 메모리에서 스왑 없이 끝났다.
   - 밖에서 확인한 것: `https://garden-library.koreacentral.cloudapp.azure.com/api/health`, 인증서 발급(자동, 90일), 80→443 넘김(308), 3000·5432가 밖에서 안 열림, 보안 헤더, 가입 차단(화면 + 액션 직접 호출 거부), 데모·관리자 로그인, 데모 안내(로그인 화면, 데모 계정 대화 화면에만), 프록시를 거친 채팅 한 턴(mock, 나눠서 도착). 확인하며 만든 대화 2개는 지웠다. 실제 모델 호출은 없었다.
   - 찾은 문제: `/privacy`가 정적으로 만들어져 `CONTACT_EMAIL`이 빌드 시점의 빈 값으로 굳었다. `force-dynamic`을 붙여 고쳤다(서버 반영은 push 뒤 `git pull`과 다시 빌드).
   - 서버에서 다시 올리는 명령: `cd ~/char-chat-lab && git pull && docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d --build`
-- 남은 일: 공개 배포(3~4단계), 입력 검사와 생성의 동시 시작(배포 뒤), 아래 "미확인으로 남긴 것".
+- 2026-11-14: 공개 배포 3단계(실제 모델 연결)는 사용자가 직접 했다. 이 서비스 전용 키를 서버의 `.env.production`에만 넣었고, 브라우저에서 데모 계정으로 확인했다. 관리자 설정 화면에는 키를 저장하지 않는다. 4단계(문서): README에 주소와 데모 계정, `docs/DEPLOY.md`에 실제 배포 기록.
+  - 데모 계정 비밀번호는 README에 적혀 있다(공개용). 관리자 비밀번호와 키는 서버 파일에만 있다. 서버의 `.env.production`은 사용자가 허락한 줄만 읽는다(전체를 출력하지 않는다).
+- 남은 일: 입력 검사와 생성의 동시 시작, 아래 "미확인으로 남긴 것".
 
 ## 실측 결론 (README에 쓸 수 있는 것)
 
@@ -111,7 +113,7 @@
 - 위치 `~/char-chat-lab/`. Next 16.4 / React 19 / Prisma 7.10(client 출력 `src/generated/prisma`, 어댑터 `@prisma/adapter-pg`) / Vitest 5. Prisma 설정은 `prisma.config.ts`. `@types/node`는 22.
 - Next 16 주의: `AGENTS.md`의 안내대로 `node_modules/next/dist/docs/`를 먼저 본다. 미들웨어는 `proxy.ts`로 개명(미사용, 보호는 페이지에서 `auth()`). `npm run typecheck`는 `next typegen` 선행.
 - Docker: 개발 Postgres **호스트 5433**(5432·3000은 다른 프로젝트가 사용. 남의 컨테이너는 건드리지 않는다). 테스트 DB는 5434.
-- Auth.js v5 beta + bcryptjs + zod, 세션 JWT. 데모·관리자 계정은 seed(`.env.example` 값은 개발용, **공개 배포 전 교체**).
+- Auth.js v5 beta + bcryptjs + zod, 세션 JWT. 데모·관리자 계정은 seed(`.env.example` 값은 개발용. 배포한 서버는 따로 만든 값을 쓴다).
 
 ### 테스트 격리 (2026-11-11 사고 뒤 도입)
 - 사고: 개발 DB에 사용자가 저장한 실제 키를 테스트 서버가 읽어 실제 모델을 호출했다. 그래서 테스트·E2E는 항상 테스트 DB + mock.
@@ -164,7 +166,7 @@
 
 ### 배포 준비
 - `Dockerfile`, `docker-compose.prod.yml`(프로젝트명 분리), `docs/DEPLOY.md`, `npm run predeploy`, 로그인 시도 제한, 헬스체크, 보안 헤더, 개인정보 페이지.
-- 로컬 운영 구성으로 확인한 것: 마이그레이션, seed 보존, 헬스, 비루트 실행, 채팅(mock), 입력 차단, 관리자 권한. 확인 안 한 것: 실제 호스팅, 실제 인증서 발급, 부하.
+- 로컬 운영 구성으로 확인한 것: 마이그레이션, seed 보존, 헬스, 비루트 실행, 채팅(mock), 입력 차단, 관리자 권한. 실제 호스팅과 인증서 발급은 2026-11-14 배포에서 확인했다. 확인 안 한 것: 부하.
 - 2026-11-14 로컬 운영+프록시 구성으로 확인한 것(프로젝트 이름을 따로 줘서 올리고 끝나면 볼륨까지 지웠다): 자체 서명 HTTPS로 `/api/health`, 80→443 넘김(308), 앱 포트가 127.0.0.1에만 열림, 보안 헤더, 가입 차단(화면 + 서버 액션 직접 호출 거부, 사용자 수 그대로), 데모 안내(로그인 화면, 데모 계정 대화 화면에만), SSE가 프록시를 거쳐 나눠서 도착, 밖에서 넣은 `X-Forwarded-For`가 버려짐. 이 PC의 3000은 다른 프로젝트가 쓰고 있어 로컬 검증은 `APP_PORT=3210`, `HTTP_PORT=8088`, `HTTPS_PORT=8443`으로 했다.
 
 ## 작업 교훈

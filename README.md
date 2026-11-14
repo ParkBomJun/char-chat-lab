@@ -6,7 +6,7 @@
 
 | | |
 | --- | --- |
-| 데모 | 배포 전이다. 주소와 데모 계정은 배포한 뒤 적는다 |
+| 데모 | https://garden-library.koreacentral.cloudapp.azure.com (2026-11-14 배포) · 계정 `demo@example.com` / `ccff5d1aa0a5ca6a`. 여러 사람이 같이 쓰는 계정이라 대화가 다른 방문자에게 보일 수 있고, 하루 30회 한도가 있다. 가입은 닫아 두었다 |
 | 스택 | Next.js 16 (App Router), React 19, TypeScript strict, PostgreSQL + Prisma 7, Auth.js v5, SSE, Vitest, Docker |
 | 모델 | OpenRouter 경유 `google/gemini-3.8-flash` (대화와 안전 분류기 모두) |
 | 테스트 | 단위 테스트 490개, 비공개 필드 누출 E2E, 카드 저장 검사 E2E |
@@ -144,6 +144,7 @@
 - 내 대화 목록은 사용자 메시지가 있는 대화 중 만든 시각 기준 최근 10개만 보여 준다.
 - 평가 엔진이 서비스 라우트를 따로 재현해서, 라우트를 고치면 엔진도 같이 고쳐야 한다.
 - 계정 삭제, 이메일 인증, 비밀번호 재설정이 없다. 실제 부하에서는 확인하지 않았다.
+- 데모는 VM 한 대에 올렸다. 모니터링, 알림, DB 백업 자동화는 없고, 예고 없이 내릴 수 있다.
 
 ## 실행
 
@@ -161,7 +162,7 @@ npm run db:test:reset && npm run dev:test    # 테스트 DB + mock 서버 (3110)
 npm run test:leak             # 비공개 필드 누출 E2E
 ```
 
-운영용 Docker 구성과 배포 전 점검은 `docs/DEPLOY.md`에 있다.
+운영용 Docker 구성, 배포 전 점검, 데모를 실제로 올린 절차는 `docs/DEPLOY.md`에 있다.
 
 ## 문서
 
