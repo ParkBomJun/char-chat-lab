@@ -12,7 +12,11 @@ const good = {
   LLM_CLASSIFIER_MODEL: "m2",
   TRUST_PROXY_HOPS: "1",
   CONTACT_EMAIL: "a@b.c",
+  SIGNUP_ENABLED: "false",
+  DAILY_MESSAGE_LIMIT: "30",
 };
+const warns = (env: Record<string, string | undefined>) =>
+  checkDeployEnv(env, { pricedModels: ["m1", "m2"] }).filter((f) => f.level === "warn").map((f) => f.message);
 const errors = (env: Record<string, string | undefined>, priced: string[] = ["m1", "m2"]) =>
   checkDeployEnv(env, { pricedModels: priced }).filter((f) => f.level === "error").map((f) => f.message);
 
@@ -56,5 +60,22 @@ describe("predeploy 점검", () => {
   it("일일 한도가 비정상이거나 과도하면 오류/경고", () => {
     expect(errors({ ...good, DAILY_MESSAGE_LIMIT: "0" }).join()).toContain("DAILY_MESSAGE_LIMIT");
     expect(checkDeployEnv({ ...good, DAILY_MESSAGE_LIMIT: "500" }, { pricedModels: ["m1", "m2"] })[0].level).toBe("warn");
+  });
+  it("일일 한도가 30보다 크면 경고(30은 통과, 지정하지 않으면 기본 50이라 경고)", () => {
+    expect(warns({ ...good, DAILY_MESSAGE_LIMIT: "30" })).toEqual([]);
+    expect(warns({ ...good, DAILY_MESSAGE_LIMIT: "31" }).join()).toContain("권장값(30)");
+    expect(warns({ ...good, DAILY_MESSAGE_LIMIT: undefined }).join()).toContain("권장값(30)");
+    expect(warns({ ...good, DAILY_MESSAGE_LIMIT: "500" })).toHaveLength(1);
+  });
+  it("★ 가입이 열려 있으면 경고(SIGNUP_ENABLED=false일 때만 통과)", () => {
+    expect(warns({ ...good, SIGNUP_ENABLED: undefined }).join()).toContain("SIGNUP_ENABLED");
+    expect(warns({ ...good, SIGNUP_ENABLED: "true" }).join()).toContain("SIGNUP_ENABLED");
+    expect(warns(good)).toEqual([]);
+  });
+  it("실제 키가 있는데 연락처가 비면 경고", () => {
+    const w = warns({ ...good, CONTACT_EMAIL: "" });
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("실제 모델");
+    expect(warns({ ...good, CONTACT_EMAIL: "", LLM_API_KEY: "" }).some((x) => x.includes("CONTACT_EMAIL이 없어"))).toBe(true);
   });
 });

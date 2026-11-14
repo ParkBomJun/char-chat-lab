@@ -1,0 +1,24 @@
+# 앞단 프록시(Caddy). 운영 구성 위에 겹쳐서 쓴다. 80·443을 열고 app:3000으로 넘기며, 인증서는 Caddy가 자동으로 받는다.
+#   docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d --build
+# .env.production에 SITE_ADDRESS(공개 주소, 예: name.region.cloudapp.azure.com)와 APP_BIND=127.0.0.1을 넣는다.
+# SITE_ADDRESS=localhost면 Caddy가 자체 서명 인증서를 쓴다(로컬 검증용).
+services:
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS를 .env.production에 설정하세요}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 인증서와 계정 키. 재배포 때 다시 발급받지 않게 볼륨에 둔다(발급 횟수 제한이 있다)
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

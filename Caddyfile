@@ -1,0 +1,9 @@
+# 사이트 주소는 환경변수로 받는다. 80으로 온 요청은 Caddy가 443으로 넘긴다.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	reverse_proxy app:3000 {
+		# 채팅 응답은 SSE다. 모아 두지 않고 받는 즉시 내보낸다.
+		flush_interval -1
+	}
+}

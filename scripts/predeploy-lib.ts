@@ -1,3 +1,5 @@
+import { signupEnabled } from "../src/lib/demo-mode";
+
 /** 배포 전 환경 점검(순수 함수). 오류가 있으면 배포하면 안 되고, 경고는 알고 넘어갈 수 있다. */
 export type Finding = { level: "error" | "warn"; message: string };
 
@@ -56,9 +58,16 @@ export function checkDeployEnv(env: Env, opts: { pricedModels?: string[] } = {})
   const limit = Number(v(env, "DAILY_MESSAGE_LIMIT") || 50);
   if (!Number.isFinite(limit) || limit < 1) err("DAILY_MESSAGE_LIMIT이 올바르지 않습니다.");
   else if (limit > 200) warn(`DAILY_MESSAGE_LIMIT=${limit}: 공개 데모에서 비용 방어선이 높습니다. 제공사 쪽 월 한도도 함께 설정하세요.`);
+  else if (limit > 30) warn(`DAILY_MESSAGE_LIMIT=${limit}: 공개 데모 권장값(30)보다 큽니다. 데모 계정은 여러 사람이 같이 쓰므로 이 값이 하루 전체 사용량의 상한입니다.`);
+
+  if (signupEnabled(env)) warn("SIGNUP_ENABLED=false가 아니라 누구나 가입할 수 있습니다. 계정을 계속 만들면 사용자당 일일 한도가 의미가 없어집니다.");
 
   if (!v(env, "TRUST_PROXY_HOPS")) warn("TRUST_PROXY_HOPS가 없어 기본값 1(프록시 한 단계)로 IP를 계산합니다. 프록시 구성이 다르면 로그인 제한이 우회되거나 모두 한 IP로 묶입니다.");
-  if (!v(env, "CONTACT_EMAIL")) warn("CONTACT_EMAIL이 없어 /privacy 페이지에 삭제 요청 연락처가 표시되지 않습니다.");
+  if (!v(env, "CONTACT_EMAIL")) {
+    warn(v(env, "LLM_API_KEY")
+      ? "실제 모델(LLM_API_KEY)을 쓰는데 CONTACT_EMAIL이 비어 있습니다. /privacy 페이지에 삭제 요청 연락처가 표시되지 않습니다."
+      : "CONTACT_EMAIL이 없어 /privacy 페이지에 삭제 요청 연락처가 표시되지 않습니다.");
+  }
 
   return out;
 }

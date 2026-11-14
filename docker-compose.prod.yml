@@ -45,7 +45,8 @@ services:
       AUTH_TRUST_HOST: "true"
     ports:
       # 앞단 프록시/로드밸런서가 TLS를 종료하고 X-Forwarded-For를 붙여야 한다(로그인 제한이 IP에 의존)
-      - "${APP_PORT:-3000}:3000"
+      # 서버에서는 APP_BIND=127.0.0.1로 앱 포트를 밖에 열지 않는다(밖으로는 프록시만 연다). 기본값은 로컬 검증용
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"
 
 volumes:
   pgdata_prod:
