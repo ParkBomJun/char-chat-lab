@@ -43,7 +43,11 @@
 - 2026-11-14: 공개 배포 1단계(인프라) 완료. `infra/terraform/`으로 Azure koreacentral에 리소스 12개를 만들었다(리소스 그룹 `rg-charchat-demo`, 가상 네트워크·서브넷, NSG와 규칙 3개, 공인 IP와 DNS 레이블, NIC, VM, 예산 알림). 주소 `garden-library.koreacentral.cloudapp.azure.com`. VM은 `Standard_B2ls_v2`(2 vCPU, 4GB, Ubuntu 24.04): `Standard_B2s`는 이 구독에서 `NotAvailableForSubscription`이라 바꿨다. 자동 종료 없음. 예산 알림은 이 리소스 그룹에만 월 70,000원. 예상 월 약 58,900원(VM 50,800 + 디스크 3,200 + 공인 IP 4,900, 공시 단가). 켜 두는 기간은 사용자가 정한다. 끌 때는 `terraform destroy`.
   - 서버 확인: SSH 키 접속(전용 키 `~/.ssh/char-chat-lab`, 계정 `demoadmin`), 비밀번호 로그인 꺼짐, cloud-init 완료, Docker와 compose 플러그인 설치, 보안 패치 뒤 재부팅 1회. 밖에서 80·443은 VM까지 닿고(아직 듣는 프로그램 없음) 3000은 막혀 있다. 22는 적용 당시의 내 공인 IP만 허용한다. IP가 바뀌면 `terraform.tfvars`의 `my_ip_cidr`를 고쳐 다시 apply한다.
   - 상태 파일과 `terraform.tfvars`는 `infra/terraform/`에 로컬로만 있다(커밋 제외). 이 지역의 vCPU 한도 4개를 다른 프로젝트 VM과 합쳐 다 쓰고 있다.
-- 남은 일: 공개 배포(2~4단계), 입력 검사와 생성의 동시 시작(배포 뒤), 아래 "미확인으로 남긴 것".
+- 2026-11-14: 공개 배포 2단계(서버에 올리기) mock 상태로 완료. 서버 `~/char-chat-lab`에 clone, `.env.production`(권한 600, 비밀값은 서버에서 생성해 파일에만 있음, `LLM_API_KEY`는 비어 있음), 운영+프록시 구성으로 기동. 서버에는 Node가 없어 predeploy는 빌드한 migrate 이미지 안에서 돌렸다(`docker run --rm --network none -v $PWD/.env.production:/app/.env.production:ro char-chat-lab-prod-migrate npm run -s predeploy -- --env-file .env.production`, 오류 0건). 이미지 빌드는 4GB 메모리에서 스왑 없이 끝났다.
+  - 밖에서 확인한 것: `https://garden-library.koreacentral.cloudapp.azure.com/api/health`, 인증서 발급(자동, 90일), 80→443 넘김(308), 3000·5432가 밖에서 안 열림, 보안 헤더, 가입 차단(화면 + 액션 직접 호출 거부), 데모·관리자 로그인, 데모 안내(로그인 화면, 데모 계정 대화 화면에만), 프록시를 거친 채팅 한 턴(mock, 나눠서 도착). 확인하며 만든 대화 2개는 지웠다. 실제 모델 호출은 없었다.
+  - 찾은 문제: `/privacy`가 정적으로 만들어져 `CONTACT_EMAIL`이 빌드 시점의 빈 값으로 굳었다. `force-dynamic`을 붙여 고쳤다(서버 반영은 push 뒤 `git pull`과 다시 빌드).
+  - 서버에서 다시 올리는 명령: `cd ~/char-chat-lab && git pull && docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d --build`
+- 남은 일: 공개 배포(3~4단계), 입력 검사와 생성의 동시 시작(배포 뒤), 아래 "미확인으로 남긴 것".
 
 ## 실측 결론 (README에 쓸 수 있는 것)
 

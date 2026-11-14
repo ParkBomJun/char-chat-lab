@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 export const metadata = { title: "데모 서비스 안내" };
+// 연락처(CONTACT_EMAIL)는 실행할 때 읽어야 한다. 정적으로 만들면 이미지 빌드 시점의 빈 값이 굳는다.
+export const dynamic = "force-dynamic";
 
 export default function PrivacyPage() {
   const contact = process.env.CONTACT_EMAIL?.trim();
