@@ -49,7 +49,8 @@
   - 서버에서 다시 올리는 명령: `cd ~/char-chat-lab && git pull && docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d --build`
 - 2026-11-14: 공개 배포 3단계(실제 모델 연결)는 사용자가 직접 했다. 이 서비스 전용 키를 서버의 `.env.production`에만 넣었고, 브라우저에서 데모 계정으로 확인했다. 관리자 설정 화면에는 키를 저장하지 않는다. 4단계(문서): README에 주소와 데모 계정, `docs/DEPLOY.md`에 실제 배포 기록.
   - 데모 계정 비밀번호는 README에 적혀 있다(공개용). 관리자 비밀번호와 키는 서버 파일에만 있다. 서버의 `.env.production`은 사용자가 허락한 줄만 읽는다(전체를 출력하지 않는다).
-- 남은 일: 입력 검사와 생성의 동시 시작, 아래 "미확인으로 남긴 것".
+- 2026-11-14: 데모 계정 대화 정리 `scripts/demo-cleanup.sh` 추가(서버 cron용, 매일 00:10 KST = 15:10 UTC). 데모 계정(`DEMO_EMAIL`, role USER만)의 대화 중 오늘(KST) 메시지가 없는 것만 지운다. 일일 한도는 오늘 보낸 메시지 행 수라서 오늘 대화를 지우면 한도가 풀리기 때문이다. 메시지·응답 품질 지표·기억 요약은 같이 지워지고, `UsageLog`·`ModerationEvent`는 대화와 연결이 없어 남는다. 테스트 DB에 지난 대화·자정을 넘긴 대화·오늘 대화·관리자 대화를 넣어 확인했다. 서버 반영과 cron 등록은 push 뒤에 한다. 화면에는 대화 삭제 기능이 없다. README "무엇을 하나" 첫 줄에 데모의 가입 방식을 덧붙였고, GitHub 저장소 소개란의 Website에 데모 주소를 넣었다.
+- 남은 일: 데모 정리 cron 등록, 입력 검사와 생성의 동시 시작, 아래 "미확인으로 남긴 것".
 
 ## 실측 결론 (README에 쓸 수 있는 것)
 
