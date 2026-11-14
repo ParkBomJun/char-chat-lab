@@ -33,9 +33,38 @@ cp .env.example .env.production
    docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
    curl http://localhost:${APP_PORT:-3000}/api/health     # {"status":"ok"}
    ```
-4. 앞단 프록시(또는 PaaS의 라우터)가 이 포트로 전달하도록 설정하고 HTTPS를 붙입니다.
+4. 앞단 프록시(또는 PaaS의 라우터)가 이 포트로 전달하도록 설정하고 HTTPS를 붙입니다. 프록시가 따로 없으면 아래 "프록시 구성"을 겹쳐 올립니다.
 
 `docker-compose.prod.yml`의 프로젝트 이름은 `char-chat-lab-prod`로 분리되어 있어 개발용 `docker-compose.yml`의 DB를 건드리지 않습니다. DB 포트는 호스트에 열지 않습니다.
+
+## 프록시 구성 (Caddy)
+
+`docker-compose.proxy.yml`과 `Caddyfile`은 운영 구성 위에 겹쳐 쓰는 앞단 프록시입니다. Caddy 컨테이너가 80·443을 열고 `app:3000`으로 넘기며, 인증서는 자동으로 받습니다.
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d --build
+curl https://<SITE_ADDRESS>/api/health
+```
+
+- `.env.production`에 `SITE_ADDRESS`(공개 주소)와 `APP_BIND=127.0.0.1`을 넣습니다. 앱 포트는 서버 안에서만 열리고 밖으로는 80·443만 열립니다.
+- 80으로 온 요청은 443으로 넘어갑니다.
+- 채팅은 SSE라서 `Caddyfile`에 `flush_interval -1`(응답을 모아 두지 않음)을 넣었습니다.
+- 인증서는 `caddy_data` 볼륨에 남습니다. `docker compose down -v`로 볼륨을 지우면 다시 발급받습니다(발급 횟수 제한이 있습니다).
+- Caddy는 밖에서 온 `X-Forwarded-For`를 버리고 접속한 IP를 새로 붙입니다. `TRUST_PROXY_HOPS=1` 그대로 씁니다.
+- 로컬 검증은 `SITE_ADDRESS=localhost`로 합니다. 이때는 Caddy가 자체 서명 인증서를 쓰므로 `curl -k`로 확인합니다. 80·443을 이미 쓰고 있으면 `HTTP_PORT`, `HTTPS_PORT`로 호스트 포트를 바꿉니다.
+
+## 공개 데모로 열 때
+
+데모 계정을 공개하면 모르는 사람이 운영자의 API 키로 대화하게 됩니다. 다음 값을 함께 씁니다.
+
+| 변수 | 값 | 이유 |
+| --- | --- | --- |
+| `SIGNUP_ENABLED` | `false` | 가입이 열려 있으면 계정을 계속 만들어 사용자당 일일 한도를 피할 수 있습니다. 서버 액션이 가입을 거부하고, `/signup`은 안내와 로그인 링크만 보여 주며, `/login`의 가입 링크가 사라집니다 |
+| `DEMO_NOTICE` | `true` | 데모 계정은 여러 사람이 같이 쓰므로 대화가 다른 방문자에게 보일 수 있습니다. 로그인 화면과, `DEMO_EMAIL` 계정으로 들어온 대화 화면 위에 안내 한 줄을 보여 줍니다 |
+| `DAILY_MESSAGE_LIMIT` | `30` 이하 | 공용 계정 하나의 하루 전체 사용량 상한이 됩니다 |
+| `APP_BIND` | `127.0.0.1` | 앱 포트를 밖에 열지 않습니다 |
+
+`npm run predeploy`는 가입이 열려 있을 때, 일일 한도가 30보다 클 때, 실제 키가 있는데 `CONTACT_EMAIL`이 비었을 때 경고합니다.
 
 ## 환경변수
 
@@ -53,6 +82,11 @@ cp .env.example .env.production
 | `DAILY_MESSAGE_LIMIT` | | 사용자당 하루 메시지 수(기본 50). 비용 방어선이므로 제공사의 월 한도도 함께 설정 |
 | `CONTACT_EMAIL` | 권장 | `/privacy` 페이지의 삭제 요청 연락처 |
 | `APP_PORT` | | compose가 호스트에 여는 앱 포트(기본 3000) |
+| `APP_BIND` | | 앱 포트를 여는 주소(기본 `0.0.0.0`). 프록시와 같은 서버에 올릴 때는 `127.0.0.1` |
+| `SIGNUP_ENABLED` | | 가입 스위치(기본 `true`). `false`면 서버가 가입을 거부 |
+| `DEMO_NOTICE` | | 공용 데모 계정 안내(기본 `false`) |
+| `SITE_ADDRESS` | 프록시 구성 사용 시 | Caddy가 받을 사이트 주소. 이 주소로 인증서를 발급받음 |
+| `HTTP_PORT` / `HTTPS_PORT` | | 프록시가 호스트에 여는 포트(기본 80 / 443) |
 
 나머지 튜닝 값(`RECENT_TURNS`, `FLOW_*`, `CLASSIFIER_*` 등)은 `.env.example` 참고. 모델 단가는 환경변수가 아니라 `src/config/pricing.json`에 넣고 이미지를 다시 빌드합니다.
 
@@ -78,6 +112,7 @@ cp .env.example .env.production
 - [ ] `npm run predeploy -- --env-file …` 오류 0건
 - [ ] 데모·관리자 비밀번호가 개발용 값이 아님, 서로 다름
 - [ ] 실제 `LLM_API_KEY`·모델 입력(서비스 전용 키), `pricing.json`에 모델 단가가 있는지 확인, 제공사 월 사용 한도 설정
+- [ ] 공개 데모라면 `SIGNUP_ENABLED=false`, `DEMO_NOTICE=true`, `DAILY_MESSAGE_LIMIT` 30 이하, `APP_BIND=127.0.0.1`
 - [ ] 앞단 프록시가 TLS 종료 + `X-Forwarded-For` 부착, `TRUST_PROXY_HOPS` 맞춤
 - [ ] `/api/health` 응답, 데모 계정으로 로그인·대화·차단 동작 확인
 - [ ] 평가 결과를 README에 반영: 정상 케이스는 `npm run redteam:all -- --private <표> --benign-only --real --yes`, 공격 케이스는 `--rules-only`(모델 호출 없음)로만. 공격 케이스는 실제 모델로 보내지 않는다(제공사 약관상 사전 승인 필요)

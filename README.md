@@ -9,7 +9,7 @@
 | 데모 | 배포 전이다. 주소와 데모 계정은 배포한 뒤 적는다 |
 | 스택 | Next.js 16 (App Router), React 19, TypeScript strict, PostgreSQL + Prisma 7, Auth.js v5, SSE, Vitest, Docker |
 | 모델 | OpenRouter 경유 `google/gemini-3.8-flash` (대화와 안전 분류기 모두) |
-| 테스트 | 단위 테스트 478개, 비공개 필드 누출 E2E, 카드 저장 검사 E2E |
+| 테스트 | 단위 테스트 490개, 비공개 필드 누출 E2E, 카드 저장 검사 E2E |
 | 사용자 | 실사용자는 없다. 아래 숫자는 실제 모델 실측과 mock 검증이고, 항목마다 어느 쪽인지 적었다 |
 
 | 첫 화면 | 채팅 |
