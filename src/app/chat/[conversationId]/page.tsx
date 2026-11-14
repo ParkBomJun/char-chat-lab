@@ -7,6 +7,7 @@ import { ChatView } from "@/components/ChatView";
 import { resolveArt } from "@/lib/character-art";
 import { loadConfig } from "@/lib/config";
 import { countTodayMessages } from "@/lib/daily-limit";
+import { DEMO_SHARED_NOTICE, isSharedDemoAccount } from "@/lib/demo-mode";
 import { remainingMessages } from "@/lib/kst";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export default async function ChatPage(props: PageProps<"/chat/[conversationId]"
           <span className="ai-note">AI와의 대화입니다</span>
         </div>
       </header>
+      {isSharedDemoAccount(session.user.email) && <p className="demo-note" role="note">{DEMO_SHARED_NOTICE}</p>}
       <ChatView conversationId={conversationId} characterId={conv.characterId} characterName={name} characterArt={art} initialMessages={conv.messages} initialStopped={conv.status === "STOPPED"} initialRemaining={remaining} dailyLimit={dailyLimit} />
     </div>
   );

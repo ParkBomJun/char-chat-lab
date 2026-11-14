@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { signIn, signOut } from "@/auth";
+import { SIGNUP_CLOSED_MESSAGE, signupEnabled } from "@/lib/demo-mode";
 import { requestIp, signupThrottled } from "@/lib/rate-limit-db";
 
 export type FormState = { error?: string; email?: string } | undefined;
@@ -36,6 +37,9 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
 }
 
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  // 가입 차단(SIGNUP_ENABLED=false)의 기준은 여기다. 화면에서 폼을 숨겨도 액션은 직접 호출할 수 있다.
+  if (!signupEnabled()) return { error: SIGNUP_CLOSED_MESSAGE };
+
   const rawEmail = String(formData.get("email") ?? "");
   const parsed = signupSchema.safeParse({
     email: rawEmail,
