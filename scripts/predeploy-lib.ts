@@ -1,4 +1,8 @@
+import type { CharacterCard } from "../src/lib/chat/assemble";
+import { cardBudgetMessage, cardBudgetStatus } from "../src/lib/chat/budget";
+import { loadConfig } from "../src/lib/config";
 import { signupEnabled } from "../src/lib/demo-mode";
+import type { LorebookEntryData } from "../src/lib/lorebook/match";
 
 /** 배포 전 환경 점검(순수 함수). 오류가 있으면 배포하면 안 되고, 경고는 알고 넘어갈 수 있다. */
 export type Finding = { level: "error" | "warn"; message: string };
@@ -11,7 +15,29 @@ const EXAMPLE_EMAILS = new Set(["demo@example.com", "admin@example.com"]);
 
 const v = (env: Env, k: string) => env[k]?.trim() ?? "";
 
-export function checkDeployEnv(env: Env, opts: { pricedModels?: string[] } = {}): Finding[] {
+/** 예산 점검 대상 카드. source는 메시지에 붙는 출처("시드", "DB" 등) */
+export type DeployCard = { source: string; character: CharacterCard; lorebook: readonly LorebookEntryData[] };
+
+/**
+ * 카드가 프롬프트 예산에 비해 크면 오류. 고정 블록은 잘리지 않으므로 예산이 카드보다 작으면 최근 대화가 조용히 전부 잘린다
+ * (2026-11-15: 기본 예산 6000 < 기본 카드 7,976이라 이력이 한 줄도 가지 않던 문제). 기준은 src/lib/chat/budget.ts.
+ */
+export function checkCardBudgets(env: Env, cards: readonly DeployCard[]): Finding[] {
+  let cfg;
+  try {
+    cfg = loadConfig(env);
+  } catch {
+    return [{ level: "error", message: "대화 설정 값(PROMPT_TOKEN_BUDGET, RECENT_TURNS 등)에 올바르지 않은 것이 있어 앱이 요청마다 실패합니다. .env.example의 범위를 확인하세요." }];
+  }
+  const out: Finding[] = [];
+  for (const c of cards) {
+    const msg = cardBudgetMessage(cardBudgetStatus(c.character, c.lorebook, cfg));
+    if (msg) out.push({ level: "error", message: `${c.source} 캐릭터 "${c.character.name}": ${msg}` });
+  }
+  return out;
+}
+
+export function checkDeployEnv(env: Env, opts: { pricedModels?: string[]; cards?: readonly DeployCard[] } = {}): Finding[] {
   const out: Finding[] = [];
   const err = (message: string) => out.push({ level: "error", message });
   const warn = (message: string) => out.push({ level: "warn", message });
@@ -70,6 +96,8 @@ export function checkDeployEnv(env: Env, opts: { pricedModels?: string[] } = {})
       ? "실제 모델(LLM_API_KEY)을 쓰는데 CONTACT_EMAIL이 비어 있습니다. /privacy 페이지에 삭제 요청 연락처가 표시되지 않습니다."
       : "CONTACT_EMAIL이 없어 /privacy 페이지에 삭제 요청 연락처가 표시되지 않습니다.");
   }
+
+  out.push(...checkCardBudgets(env, opts.cards ?? []));
 
   return out;
 }

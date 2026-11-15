@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkDeployEnv } from "./predeploy-lib";
+import haru from "../prisma/seed-data/haru.json";
+import { checkCardBudgets, checkDeployEnv, type DeployCard } from "./predeploy-lib";
 
 const good = {
   DATABASE_URL: "postgresql://u:p@db:5432/x",
@@ -98,5 +99,29 @@ describe("predeploy 점검", () => {
     expect(w).toHaveLength(1);
     expect(w[0]).toContain("실제 모델");
     expect(warns({ ...good, CONTACT_EMAIL: "", LLM_API_KEY: "" }).some((x) => x.includes("CONTACT_EMAIL이 없어"))).toBe(true);
+  });
+  describe("카드와 프롬프트 예산", () => {
+    const seed: DeployCard = { source: "시드(haru.json)", character: haru.character, lorebook: haru.lorebook.map((l) => ({ ...l, enabled: true })) };
+    it("기본 예산에서 시드 카드는 통과", () => {
+      expect(checkDeployEnv(good, { pricedModels: ["m1", "m2"], cards: [seed] })).toEqual([]);
+    });
+    it("예산이 카드보다 작으면 오류(2026-11-15: 예전 기본값 6000)", () => {
+      const f = checkCardBudgets({ PROMPT_TOKEN_BUDGET: "6000" }, [seed]);
+      expect(f).toHaveLength(1);
+      expect(f[0].level).toBe("error");
+      expect(f[0].message).toContain("하루");
+      expect(f[0].message).toContain("넘습니다");
+    });
+    it("최근 대화 몫이 거의 안 남아도 오류", () => {
+      const f = checkCardBudgets({ PROMPT_TOKEN_BUDGET: "9000" }, [seed]);
+      expect(f.map((x) => x.level)).toEqual(["error"]);
+      expect(f[0].message).toContain("잘립니다");
+    });
+    it("RECENT_TURNS를 늘리면 같은 예산도 모자랄 수 있다", () => {
+      expect(checkCardBudgets({ RECENT_TURNS: "60" }, [seed])).toHaveLength(1);
+    });
+    it("설정 값이 범위를 벗어나면 오류", () => {
+      expect(checkCardBudgets({ PROMPT_TOKEN_BUDGET: "100" }, [seed])[0].message).toContain("올바르지 않은");
+    });
   });
 });

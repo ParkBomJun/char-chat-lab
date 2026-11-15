@@ -2,10 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { CharacterForm } from "@/components/admin/CharacterForm";
-import { renderFixedBlock } from "@/lib/chat/assemble";
+import { cardBudgetMessage, cardBudgetStatus } from "@/lib/chat/budget";
 import { loadConfig } from "@/lib/config";
 import { lorebookInlineSize, planLorebook } from "@/lib/lorebook/plan";
-import { estimateTokens } from "@/lib/tokens";
 import { deleteLoreAction, saveLoreAction } from "@/app/admin/actions";
 import { MAX_KEYWORDS_PER_ENTRY, MIN_KEYWORD_LENGTH } from "@/lib/lorebook/keywords";
 import { decodeFindings, warningMessage } from "@/lib/safety/card-check";
@@ -24,7 +23,10 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
   const cfg = loadConfig();
   const lorePlan = planLorebook(character.lorebook, [], { scanTurns: cfg.lorebookScanTurns, inlineMaxTokens: cfg.lorebookInlineMaxTokens });
   const loreSize = lorebookInlineSize(character.lorebook);
-  const fixedTokens = estimateTokens(renderFixedBlock(character, lorePlan.inline.map((h) => h.content)));
+  // 카드가 프롬프트 예산에 비해 크면 최근 대화가 조용히 잘린다. 저장(카드·로어북) 뒤에는 이 화면으로 돌아오므로 여기서 매번 계산해 경고한다.
+  const budget = cardBudgetStatus(character, character.lorebook, cfg);
+  const budgetWarning = cardBudgetMessage(budget);
+  const fixedTokens = budget.fixed;
   const error = one(sp.error);
   const saved = one(sp.saved);
   // 저장 때 SOFT 규칙에 걸린 필드·범주(허용된 이름만 되읽는다)
@@ -38,10 +40,11 @@ export default async function EditCharacter(props: PageProps<"/admin/characters/
       {saved === "1" && <p className="ok">저장했습니다.</p>}
       {saved === "lore" && <p className="ok">로어북을 저장했습니다.</p>}
       {warnings.length > 0 && <p className="warn" role="status">⚠ {warningMessage(warnings)}</p>}
+      {budgetWarning && <p className="warn" role="status">⚠ {budgetWarning}</p>}
       {error && <p className="error">{error}</p>}
 
       <p className="note-s">
-        고정 블록(안전 지시+캐릭터 카드) 추정 {fixedTokens.toLocaleString("ko-KR")}토큰(글자 수 기준). 이 내용을 수정하면 진행 중인 대화의 캐시 접두사가 한 번 바뀌고,
+        고정 블록(안전 지시+캐릭터 카드) 추정 {fixedTokens.toLocaleString("ko-KR")}토큰(글자 수 기준), 프롬프트 예산 {budget.budget.toLocaleString("ko-KR")} 중 최근 대화에 남는 몫 {Math.max(0, budget.room).toLocaleString("ko-KR")}. 이 내용을 수정하면 진행 중인 대화의 캐시 접두사가 한 번 바뀌고,
         캐시가 동작하는 최소 길이는 제공사·모델마다 다릅니다. 실측한 경로(OpenRouter 경유 Gemini, 2026-11-12)에서는 자동 캐시가 걸리지 않고, 캐시 표시를 붙인 앞부분이
         실제 토큰으로 3,555~4,159 사이를 넘어야 동작했습니다(이 화면의 글자 수 추정으로는 대략 6,000~7,000 이상).
       </p>
