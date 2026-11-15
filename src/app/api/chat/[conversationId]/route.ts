@@ -279,7 +279,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/chat/[conve
             model: chatModel,
             usage,
             blockTokens: assembled.blockTokens,
-            promptMeta: { lorebookIds: assembled.lorebookIds, ...(assembled.inlineLorebookIds.length ? { inlineLorebookIds: assembled.inlineLorebookIds } : {}), droppedRecent: assembled.droppedRecent, prefix: assembled.prefix, cacheBreak },
+            promptMeta: { lorebookIds: assembled.lorebookIds, ...(assembled.inlineLorebookIds.length ? { inlineLorebookIds: assembled.inlineLorebookIds } : {}), droppedRecent: assembled.droppedRecent, overBudget: assembled.overBudget, prefix: assembled.prefix, cacheBreak },
             estimatedInputTokens: assembled.blockTokens.total,
             outputText: text,
             ttftMs,

@@ -6,7 +6,7 @@ export type CharacterCard = { name: string; persona: string; speechStyle: string
 export type HistoryMessage = { role: "USER" | "ASSISTANT" | "SYSTEM_NOTICE"; content: string };
 export type LorebookHit = { id: string; content: string; priority: number };
 export type AssembleConfig = {
-  /** 프롬프트 전체 입력 토큰 예산 */
+  /** 프롬프트 전체 입력 예산. 단위는 추정 토큰 = 글자 수(estimateTokens). 실제 토큰은 약 ESTIMATE_TO_REAL(0.55)배 */
   promptTokenBudget: number;
   /** 로어북 블록 예산 */
   lorebookTokenBudget: number;
@@ -68,7 +68,7 @@ export type AssembleResult = {
   inlineLorebookIds: string[];
   /** 예산 때문에 잘려 나간 최근 대화 메시지 수 */
   droppedRecent: number;
-  /** 고정 블록+이번 입력만으로 예산을 넘으면 true (이때도 둘은 자르지 않는다) */
+  /** 최근 대화를 자르고도 합계가 예산을 넘으면 true: 고정 블록·요약·로어북·이번 입력만으로 예산 초과(이들은 자르지 않는다). 사용량 기록(blockTokens.overBudget)에 남긴다 */
   overBudget: boolean;
   /** breakpoint를 붙인 messages 인덱스. 옵션이 꺼져 있거나 앞부분이 최소 길이 미만이면 null */
   cacheBreakpointIndex: number | null;

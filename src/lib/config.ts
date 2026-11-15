@@ -13,7 +13,9 @@ const schema = z.object({
   LOREBOOK_SCAN_TURNS: num(4, 1),
   LOREBOOK_INLINE_MAX_TOKENS: num(1000, 0),
   DAILY_MESSAGE_LIMIT: num(50, 1),
-  PROMPT_TOKEN_BUDGET: num(6000, 500),
+  // 단위는 실제 토큰이 아니라 조립기의 추정 토큰 = 글자 수(estimateTokens)다. 실제 토큰은 약 0.55배(20000 ≈ 실제 11,000토큰).
+  // 고정 블록은 자르지 않으므로 이 값이 카드보다 작으면 최근 대화가 전부 잘린다. 6000이던 기본값이 카드(7,976자)보다 작아 2026-11-15에 20000으로 올렸다(산정 근거: SPEC 3-2).
+  PROMPT_TOKEN_BUDGET: num(20000, 500),
   LOREBOOK_TOKEN_BUDGET: num(800, 0),
   MAX_OUTPUT_TOKENS: num(1024, 16),
   CLASSIFIER_BLOCK_THRESHOLD: flt(0.8),
@@ -39,7 +41,9 @@ export type AppConfig = {
   /** 활성 로어북 전체의 추정 토큰이 이 값 이하면 고정 블록에 상시 포함한다. 0이면 항상 키워드 방식 */
   lorebookInlineMaxTokens: number;
   dailyMessageLimit: number;
+  /** 프롬프트 입력 전체 예산. 단위는 추정 토큰 = 글자 수(실제 토큰은 약 0.55배). 넘으면 최근 대화의 오래된 메시지부터 잘린다 */
   promptTokenBudget: number;
+  /** 키워드 로어북 블록 예산(같은 단위: 글자 수) */
   lorebookTokenBudget: number;
   maxOutputTokens: number;
   /** 분류기 score가 이 값 이상이면 verdict와 무관하게 차단 */

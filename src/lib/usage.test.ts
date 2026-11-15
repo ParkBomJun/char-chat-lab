@@ -37,10 +37,10 @@ describe("buildUsageRow", () => {
   });
   it("promptMeta(로어북 id 등)는 blockTokens JSON에 합쳐진다", () => {
     const r = buildUsageRow(
-      { model: "m", usage: null, blockTokens: bt, promptMeta: { lorebookIds: ["l1"], droppedRecent: 2 }, estimatedInputTokens: 20, outputText: "a", ttftMs: 1, totalMs: 2 },
+      { model: "m", usage: null, blockTokens: bt, promptMeta: { lorebookIds: ["l1"], droppedRecent: 2, overBudget: true }, estimatedInputTokens: 20, outputText: "a", ttftMs: 1, totalMs: 2 },
       table,
     );
-    expect(r.blockTokens).toEqual({ ...bt, lorebookIds: ["l1"], droppedRecent: 2 });
+    expect(r.blockTokens).toEqual({ ...bt, lorebookIds: ["l1"], droppedRecent: 2, overBudget: true });
   });
   it("요약 호출은 blockTokens 없이 기록", () => {
     const r = buildUsageRow({ model: "m", usage: null, blockTokens: null, estimatedInputTokens: 77, outputText: "abc", ttftMs: null, totalMs: 9 }, table);

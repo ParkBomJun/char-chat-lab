@@ -10,6 +10,8 @@ export type PromptMeta = {
   /** 고정 블록에 상시 포함된 로어북 항목 id(없으면 생략) */
   inlineLorebookIds?: string[];
   droppedRecent: number;
+  /** 최근 대화를 다 자르고도 예산을 넘었는지(고정 블록이 예산보다 큰 경우 등). 이 필드를 넣기 전(2026-11-15 이전) 행에는 없다 */
+  overBudget?: boolean;
   /** 블록별 해시(원문 없음)와, 직전 턴 대비 캐시 접두사가 처음 달라진 블록 */
   prefix?: PrefixHashes;
   cacheBreak?: CacheBreak;
