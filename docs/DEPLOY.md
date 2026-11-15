@@ -80,6 +80,7 @@ curl https://<SITE_ADDRESS>/api/health
 | `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_CLASSIFIER_MODEL` | 실서비스 시 | 비면 mock 어댑터(가짜 응답). 분류기·요약용은 저가 모델. **운영에서는 이 환경변수 방식을 권장**합니다. 관리자 화면(`/admin/settings`)에서 저장한 설정은 DB에 암호화되어 저장되며 환경변수보다 우선합니다 — 공개 배포에서는 그 화면에서 키를 저장하지 않는 편이 안전합니다 |
 | `LLM_BASE_URL` | | OpenAI 호환 주소(기본 OpenAI) |
 | `DAILY_MESSAGE_LIMIT` | | 사용자당 하루 메시지 수(기본 50). 비용 방어선이므로 제공사의 월 한도도 함께 설정 |
+| `PROMPT_TOKEN_BUDGET` | | 프롬프트 입력 전체 예산(기본 20000). **단위는 실제 토큰이 아니라 글자 수 추정**입니다(실제 토큰은 약 0.55배). 고정 블록(안전 지시 + 카드 + 작은 로어북)은 자르지 않으므로 이 값이 카드보다 작으면 최근 대화가 전부 잘립니다. predeploy가 카드와 비교해 점검합니다 |
 | `CONTACT_EMAIL` | 권장 | `/privacy` 페이지의 삭제 요청 연락처 |
 | `APP_PORT` | | compose가 호스트에 여는 앱 포트(기본 3000) |
 | `APP_BIND` | | 앱 포트를 여는 주소(기본 `0.0.0.0`). 프록시와 같은 서버에 올릴 때는 `127.0.0.1` |
@@ -109,7 +110,8 @@ curl https://<SITE_ADDRESS>/api/health
 
 ## 공개 전 체크리스트
 
-- [ ] `npm run predeploy -- --env-file …` 오류 0건
+- [ ] `npm run predeploy -- --env-file …` 오류 0건. 시드 카드와 프롬프트 예산도 같이 봅니다. 운영 DB의 카드를 관리자 화면에서 고쳤다면 DB에 닿는 환경에서 `--db`를 붙여 DB의 카드까지 점검
+- [ ] 대화를 몇 턴 한 뒤 `UsageLog`(kind=CHAT)의 `blockTokens.recent`가 0보다 크고 `droppedRecent`가 0인지 확인(이력이 실제로 실리는지)
 - [ ] 데모·관리자 비밀번호가 개발용 값이 아님, 서로 다름
 - [ ] 실제 `LLM_API_KEY`·모델 입력(서비스 전용 키), `pricing.json`에 모델 단가가 있는지 확인, 제공사 월 사용 한도 설정
 - [ ] 공개 데모라면 `SIGNUP_ENABLED=false`, `DEMO_NOTICE=true`, `DAILY_MESSAGE_LIMIT` 30 이하, `APP_BIND=127.0.0.1`
@@ -148,6 +150,10 @@ curl https://<SITE_ADDRESS>/api/health
 재배포는 서버에서 `git pull` 뒤 같은 `up -d --build` 명령입니다. 내릴 때는 `infra/terraform/`에서 `terraform destroy`입니다.
 
 배포하면서 찾은 문제: `/privacy`가 정적 페이지로 만들어져 `CONTACT_EMAIL`이 이미지 빌드 시점의 빈 값으로 굳었습니다. 실행할 때 읽도록 고쳤습니다. 환경변수를 읽는 화면은 정적으로 만들어지지 않는지 확인해야 합니다.
+
+### 배포 뒤 발견한 문제 (2026-11-15)
+
+배포한 구성은 `PROMPT_TOKEN_BUDGET`을 따로 두지 않아 당시 기본값 6000을 썼고, 기본 캐릭터의 고정 블록(7,976자)이 그보다 커서 **최근 대화가 모델에 가지 않았습니다**(매 턴 고정 블록과 이번 입력만 전송). 서버의 대화 호출 기록은 이때까지 1건(11-14 19:19 KST)이었고 `blockTokens.recent = 0`, `droppedRecent = 1`이었습니다. 기본값을 20000으로 올리고 predeploy 점검과 관리자 화면 경고, `overBudget` 기록을 추가했습니다. 경위와 영향받은 실측은 `docs/CACHE.md` 8절. 서버에는 수정본을 받아 다시 빌드해야 반영됩니다.
 
 ## 알려진 한계 (운영 관점)
 
