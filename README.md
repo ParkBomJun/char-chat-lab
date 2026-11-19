@@ -167,6 +167,8 @@ npm run test:leak             # 비공개 필드 누출 E2E
 
 ## 문서
 
+한눈에 보기: [구조와 측정 요약 (PDF)](docs/overview.pdf) · [그림 모음 (PDF)](docs/diagrams.pdf)
+
 | 문서 | 내용 |
 | --- | --- |
 | `SPEC.md` | 개발 명세와 바뀐 점 |
